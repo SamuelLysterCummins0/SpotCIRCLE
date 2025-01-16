@@ -22,7 +22,18 @@ const getLoginUrl = (req, res) => {
   ];
   
   const state = Math.random().toString(36).substring(7);
-  const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
+  
+  // Manually construct the authorization URL
+  const params = new URLSearchParams({
+    client_id: process.env.SPOTIFY_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+    state: state,
+    scope: scopes.join(' ')
+  });
+
+  const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
+  console.log('Generated authorize URL:', authorizeURL);
   res.json({ url: authorizeURL });
 };
 
@@ -93,26 +104,64 @@ const refreshToken = async (req, res) => {
 // Get user's top tracks
 const getTopTracks = async (req, res) => {
   try {
-    const { access_token } = req.user;
+    const token = req.headers.authorization.split(' ')[1];
     const { time_range = 'short_term' } = req.query;
     
-    spotifyApi.setAccessToken(access_token);
+    spotifyApi.setAccessToken(token);
     const data = await spotifyApi.getMyTopTracks({
       limit: 50,
       time_range
     });
 
-    res.json(data.body.items);
+    // Transform track data to include necessary fields
+    const transformedTracks = data.body.items.map(track => ({
+      id: track.id,
+      name: track.name,
+      uri: track.uri,
+      duration_ms: track.duration_ms,
+      album: {
+        id: track.album.id,
+        name: track.album.name,
+        images: track.album.images,
+        release_date: track.album.release_date
+      },
+      artists: track.artists.map(artist => ({
+        id: artist.id,
+        name: artist.name,
+        uri: artist.uri
+      }))
+    }));
+
+    res.json(transformedTracks);
   } catch (error) {
     console.error('Error fetching top tracks:', error);
     res.status(500).json({ error: 'Failed to fetch top tracks' });
   }
 };
 
+// Get user's top artists
+const getTopArtists = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { time_range = 'short_term' } = req.query;
+    
+    spotifyApi.setAccessToken(token);
+    const data = await spotifyApi.getMyTopArtists({
+      limit: 50,
+      time_range
+    });
+
+    res.json(data.body.items);
+  } catch (error) {
+    console.error('Error fetching top artists:', error);
+    res.status(500).json({ error: 'Failed to fetch top artists' });
+  }
+};
+
 // Get user's recent tracks
 const getRecentTracks = async (req, res) => {
   try {
-    const { access_token } = req.user;
+    const { access_token } = req.headers.authorization.split(' ')[1];
     
     spotifyApi.setAccessToken(access_token);
     const data = await spotifyApi.getMyRecentlyPlayedTracks({
@@ -131,5 +180,6 @@ module.exports = {
   handleCallback,
   refreshToken,
   getTopTracks,
+  getTopArtists,
   getRecentTracks
 };

@@ -89,29 +89,39 @@ const Home = () => {
         fetchData(`/artists/top?time_range=${timeRange}`)
       ]);
 
-      setTopTracks(topTracksData);
-      setTopArtists(topArtistsData);
+      // Initialize arrays if they're undefined
+      setTopTracks(topTracksData || []);
+      setTopArtists(topArtistsData || []);
 
       // Generate top albums from top tracks
       const albumsMap = new Map();
-      topTracksData.forEach(track => {
-        if (track.album && !albumsMap.has(track.album.id)) {
-          albumsMap.set(track.album.id, {
-            ...track.album,
-            playCount: 1
-          });
-        } else if (track.album) {
-          const album = albumsMap.get(track.album.id);
-          albumsMap.set(track.album.id, {
-            ...album,
-            playCount: album.playCount + 1
-          });
-        }
-      });
+      if (topTracksData) {
+        topTracksData.forEach(track => {
+          if (track.album && !albumsMap.has(track.album.id)) {
+            albumsMap.set(track.album.id, {
+              ...track.album,
+              playCount: 1,
+              artists: track.artists // Add artists from the track
+            });
+          } else if (track.album) {
+            const album = albumsMap.get(track.album.id);
+            albumsMap.set(track.album.id, {
+              ...album,
+              playCount: album.playCount + 1
+            });
+          }
+        });
+      }
 
-      setTopAlbums(Array.from(albumsMap.values())
+      const topAlbumsData = Array.from(albumsMap.values())
         .sort((a, b) => b.playCount - a.playCount)
-        .slice(0, 10));
+        .slice(0, 10)
+        .map(album => ({
+          ...album,
+          artists: album.artists || [] // Ensure artists is always an array
+        }));
+
+      setTopAlbums(topAlbumsData);
 
     } catch (err) {
       console.error('Error fetching data:', err);
