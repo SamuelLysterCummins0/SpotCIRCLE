@@ -215,6 +215,7 @@ const Home = () => {
   const renderTrackList = (tracks, title) => {
     const isExpanded = expandedSection === 'tracks';
     const displayTracks = isExpanded ? tracks : tracks.slice(0, 7);
+    const hiddenTracks = isExpanded ? tracks.slice(7) : [];
 
     return (
       <div className="mb-12">
@@ -227,10 +228,10 @@ const Home = () => {
             <select
               value={selectedTimeRange}
               onChange={(e) => setSelectedTimeRange(e.target.value)}
-              className="px-3 py-1 text-sm rounded-full bg-transparent border border-purple-500/20 
+              className="px-3 py-1 text-sm rounded-full bg-black/40 border border-purple-500/20 
                        text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
                        focus:outline-none focus:ring-2 focus:ring-purple-500/40
-                       pr-8 relative transition-colors"
+                       pr-8 relative transition-colors backdrop-blur-sm"
               style={{
                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
                 backgroundRepeat: 'no-repeat',
@@ -238,12 +239,12 @@ const Home = () => {
                 backgroundSize: '16px'
               }}
             >
-              <option value={TimeRanges.TODAY}>Today</option>
-              <option value={TimeRanges.THIS_WEEK}>This Week</option>
-              <option value={TimeRanges.SHORT}>4 Weeks</option>
-              <option value={TimeRanges.MEDIUM}>6 Months</option>
-              <option value={TimeRanges.YEAR}>2025</option>
-              <option value={TimeRanges.LONG}>Lifetime</option>
+              <option value={TimeRanges.TODAY} className="bg-black text-purple-400">Today</option>
+              <option value={TimeRanges.THIS_WEEK} className="bg-black text-purple-400">This Week</option>
+              <option value={TimeRanges.SHORT} className="bg-black text-purple-400">4 Weeks</option>
+              <option value={TimeRanges.MEDIUM} className="bg-black text-purple-400">6 Months</option>
+              <option value={TimeRanges.YEAR} className="bg-black text-purple-400">2025</option>
+              <option value={TimeRanges.LONG} className="bg-black text-purple-400">Lifetime</option>
             </select>
             <motion.button
               onClick={() => setExpandedSection(isExpanded ? null : 'tracks')}
@@ -271,7 +272,7 @@ const Home = () => {
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-          {displayTracks.map((track, index) => (
+          {displayTracks.slice(0, 7).map((track, index) => (
             <div
               key={track.id}
               className="group relative"
@@ -287,7 +288,7 @@ const Home = () => {
                 />
                 {hoveredTrack === track.id && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
-                    <button className="p-3 bg-green-500 rounded-full hover:scale-105 transition-transform">
+                    <button className="p-3 bg-[#5B21B6] rounded-full hover:scale-105 transition-transform">
                       {currentTrack?.id === track.id && isPlaying ? (
                         <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
                           <rect x="6" y="4" width="4" height="16" fill="white" />
@@ -313,6 +314,65 @@ const Home = () => {
               </div>
             </div>
           ))}
+          <AnimatePresence>
+            {isExpanded && hiddenTracks.map((track, index) => (
+              <motion.div
+                key={track.id}
+                initial={{ 
+                  opacity: 0,
+                  scale: 0.6,
+                  y: 20
+                }}
+                animate={{ 
+                  opacity: 1,
+                  scale: 1,
+                  y: 0
+                }}
+                transition={{
+                  duration: 0.3,
+                  delay: index * 0.05,
+                  ease: "easeOut"
+                }}
+                className="group relative"
+                onMouseEnter={() => setHoveredTrack(track.id)}
+                onMouseLeave={() => setHoveredTrack(null)}
+                onClick={() => handleTrackSelect(track)}
+              >
+                <div className="relative aspect-square">
+                  <img
+                    src={track.album?.images[0]?.url}
+                    alt={track.name}
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                  {hoveredTrack === track.id && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
+                      <button className="p-3 bg-[#5B21B6] rounded-full hover:scale-105 transition-transform">
+                        {currentTrack?.id === track.id && isPlaying ? (
+                          <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                            <rect x="6" y="4" width="4" height="16" fill="white" />
+                            <rect x="14" y="4" width="4" height="16" fill="white" />
+                          </svg>
+                        ) : (
+                          <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <h3 className="font-medium truncate">{track.name}</h3>
+                  <p className="text-sm text-gray-400 truncate">
+                    {track.artists.map(a => a.name).join(', ')}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
     );
@@ -321,6 +381,7 @@ const Home = () => {
   const renderArtistList = (artists, title) => {
     const isExpanded = expandedSection === 'artists';
     const displayArtists = isExpanded ? artists : artists.slice(0, 7);
+    const hiddenArtists = isExpanded ? artists.slice(7) : [];
 
     return (
       <div className="mb-12">
@@ -354,7 +415,7 @@ const Home = () => {
           </motion.button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-          {displayArtists.map((artist, index) => (
+          {displayArtists.slice(0, 7).map((artist, index) => (
             <div key={artist.id} className="group">
               <div className="relative aspect-square">
                 <img
@@ -371,6 +432,43 @@ const Home = () => {
               </div>
             </div>
           ))}
+          <AnimatePresence>
+            {isExpanded && hiddenArtists.map((artist, index) => (
+              <motion.div
+                key={artist.id}
+                initial={{ 
+                  opacity: 0,
+                  scale: 0.6,
+                  y: 20
+                }}
+                animate={{ 
+                  opacity: 1,
+                  scale: 1,
+                  y: 0
+                }}
+                transition={{
+                  duration: 0.3,
+                  delay: index * 0.05,
+                  ease: "easeOut"
+                }}
+                className="group"
+              >
+                <div className="relative aspect-square">
+                  <img
+                    src={artist.images[0]?.url}
+                    alt={artist.name}
+                    className="w-full h-full object-cover rounded-full"
+                  />
+                </div>
+                <div className="mt-2 text-center">
+                  <h3 className="font-medium truncate">{artist.name}</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {artist.minutes} minutes • {artist.streams} streams
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
     );
@@ -379,6 +477,7 @@ const Home = () => {
   const renderAlbumList = (albums, title) => {
     const isExpanded = expandedSection === 'albums';
     const displayAlbums = isExpanded ? albums : albums.slice(0, 7);
+    const hiddenAlbums = isExpanded ? albums.slice(7) : [];
 
     return (
       <div className="mb-12">
@@ -412,7 +511,7 @@ const Home = () => {
           </motion.button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-          {displayAlbums.map((album, index) => (
+          {displayAlbums.slice(0, 7).map((album, index) => (
             <div key={album.id} className="group">
               <div className="relative aspect-square">
                 <img
@@ -432,6 +531,46 @@ const Home = () => {
               </div>
             </div>
           ))}
+          <AnimatePresence>
+            {isExpanded && hiddenAlbums.map((album, index) => (
+              <motion.div
+                key={album.id}
+                initial={{ 
+                  opacity: 0,
+                  scale: 0.6,
+                  y: 20
+                }}
+                animate={{ 
+                  opacity: 1,
+                  scale: 1,
+                  y: 0
+                }}
+                transition={{
+                  duration: 0.3,
+                  delay: index * 0.05,
+                  ease: "easeOut"
+                }}
+                className="group"
+              >
+                <div className="relative aspect-square">
+                  <img
+                    src={album.images[0]?.url}
+                    alt={album.name}
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                </div>
+                <div className="mt-2">
+                  <h3 className="font-medium truncate">{album.name}</h3>
+                  <p className="text-sm text-gray-400 truncate">
+                    {album.artists.map(a => a.name).join(', ')}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {album.playCount} plays
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
     );
