@@ -1,28 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import axios from 'axios';
+import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import PlayerNotch from '../components/PlayerNotch';
 import SpotifyPlayer from '../components/SpotifyPlayer';
 
 const API_URL = 'http://localhost:5001/api';
 
 const TimeRanges = {
+  TODAY: 'today',
+  THIS_WEEK: 'this_week',
   SHORT: 'short_term',
   MEDIUM: 'medium_term',
-  LONG: 'long_term'
+  YEAR: '2025',
+  LONG: 'lifetime'
 };
 
 const TimeRangeLabels = {
-  [TimeRanges.SHORT]: 'Last 4 weeks',
-  [TimeRanges.MEDIUM]: 'Last 6 months',
-  [TimeRanges.LONG]: 'All time'
+  today: 'Today',
+  this_week: 'This Week',
+  short_term: '4 Weeks',
+  medium_term: '6 Months',
+  '2025': '2025',
+  lifetime: 'Lifetime'
 };
 
 const timeRanges = [
-  { id: TimeRanges.SHORT, label: TimeRangeLabels[TimeRanges.SHORT] },
-  { id: TimeRanges.MEDIUM, label: TimeRangeLabels[TimeRanges.MEDIUM] },
-  { id: TimeRanges.LONG, label: TimeRangeLabels[TimeRanges.LONG] }
+  { id: TimeRanges.TODAY, label: TimeRangeLabels.today },
+  { id: TimeRanges.THIS_WEEK, label: TimeRangeLabels.this_week },
+  { id: TimeRanges.SHORT, label: TimeRangeLabels.short_term },
+  { id: TimeRanges.MEDIUM, label: TimeRangeLabels.medium_term },
+  { id: TimeRanges.YEAR, label: TimeRangeLabels.year },
+  { id: TimeRanges.LONG, label: TimeRangeLabels.lifetime }
 ];
 
 const Home = () => {
@@ -39,6 +48,7 @@ const Home = () => {
   const [timeRange, setTimeRange] = useState(TimeRanges.SHORT);
   const [hoveredTrack, setHoveredTrack] = useState(null);
   const [selectedTimeRange, setSelectedTimeRange] = useState(TimeRanges.SHORT);
+  const [expandedSection, setExpandedSection] = useState(null);
   const { scrollY } = useScroll();
   
   // Parallax effect values
@@ -202,155 +212,230 @@ const Home = () => {
     );
   }
 
-  const renderTrackList = (tracks, title) => (
-    <div className="mb-12">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-purple-400">Your top tracks from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSelectedTimeRange(TimeRanges.SHORT)}
-            className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              selectedTimeRange === TimeRanges.SHORT
-                ? 'bg-purple-600 text-white'
-                : 'text-purple-400 hover:bg-purple-600/20'
-            }`}
-          >
-            4 weeks
-          </button>
-          <button
-            onClick={() => setSelectedTimeRange(TimeRanges.MEDIUM)}
-            className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              selectedTimeRange === TimeRanges.MEDIUM
-                ? 'bg-purple-600 text-white'
-                : 'text-purple-400 hover:bg-purple-600/20'
-            }`}
-          >
-            6 months
-          </button>
-          <button
-            onClick={() => setSelectedTimeRange(TimeRanges.LONG)}
-            className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              selectedTimeRange === TimeRanges.LONG
-                ? 'bg-purple-600 text-white'
-                : 'text-purple-400 hover:bg-purple-600/20'
-            }`}
-          >
-            All time
-          </button>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        {tracks.map((track, index) => (
-          <div
-            key={track.id}
-            className="group relative"
-            onMouseEnter={() => setHoveredTrack(track.id)}
-            onMouseLeave={() => setHoveredTrack(null)}
-            onClick={() => handleTrackSelect(track)}
-          >
-            <div className="relative aspect-square">
-              <img
-                src={track.album?.images[0]?.url}
-                alt={track.name}
-                className="w-full h-full object-cover rounded-lg"
-              />
-              {hoveredTrack === track.id && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
-                  <button className="p-3 bg-green-500 rounded-full hover:scale-105 transition-transform">
-                    {currentTrack?.id === track.id && isPlaying ? (
-                      <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-                        <rect x="6" y="4" width="4" height="16" fill="white" />
-                        <rect x="14" y="4" width="4" height="16" fill="white" />
-                      </svg>
-                    ) : (
-                      <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="mt-2">
-              <h3 className="font-medium truncate">{track.name}</h3>
-              <p className="text-sm text-gray-400 truncate">
-                {track.artists.map(a => a.name).join(', ')}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const renderTrackList = (tracks, title) => {
+    const isExpanded = expandedSection === 'tracks';
+    const displayTracks = isExpanded ? tracks : tracks.slice(0, 7);
 
-  const renderArtistList = (artists, title) => (
-    <div className="mb-12">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-purple-400">Your top artists from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
+    return (
+      <div className="mb-12">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white">{title}</h2>
+            <p className="text-sm text-purple-400">Your top tracks from {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedTimeRange}
+              onChange={(e) => setSelectedTimeRange(e.target.value)}
+              className="px-3 py-1 text-sm rounded-full bg-transparent border border-purple-500/20 
+                       text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
+                       focus:outline-none focus:ring-2 focus:ring-purple-500/40
+                       pr-8 relative transition-colors"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 8px center',
+                backgroundSize: '16px'
+              }}
+            >
+              <option value={TimeRanges.TODAY}>Today</option>
+              <option value={TimeRanges.THIS_WEEK}>This Week</option>
+              <option value={TimeRanges.SHORT}>4 Weeks</option>
+              <option value={TimeRanges.MEDIUM}>6 Months</option>
+              <option value={TimeRanges.YEAR}>2025</option>
+              <option value={TimeRanges.LONG}>Lifetime</option>
+            </select>
+            <motion.button
+              onClick={() => setExpandedSection(isExpanded ? null : 'tracks')}
+              className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 
+                       text-purple-400 hover:text-purple-300 transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <motion.svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                animate={{ rotate: isExpanded ? 180 : 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 10 }}
+              >
+                <path d="M6 9l6 6 6-6"/>
+              </motion.svg>
+            </motion.button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+          {displayTracks.map((track, index) => (
+            <div
+              key={track.id}
+              className="group relative"
+              onMouseEnter={() => setHoveredTrack(track.id)}
+              onMouseLeave={() => setHoveredTrack(null)}
+              onClick={() => handleTrackSelect(track)}
+            >
+              <div className="relative aspect-square">
+                <img
+                  src={track.album?.images[0]?.url}
+                  alt={track.name}
+                  className="w-full h-full object-cover rounded-lg"
+                />
+                {hoveredTrack === track.id && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
+                    <button className="p-3 bg-green-500 rounded-full hover:scale-105 transition-transform">
+                      {currentTrack?.id === track.id && isPlaying ? (
+                        <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                          <rect x="6" y="4" width="4" height="16" fill="white" />
+                          <rect x="14" y="4" width="4" height="16" fill="white" />
+                        </svg>
+                      ) : (
+                        <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="mt-2">
+                <h3 className="font-medium truncate">{track.name}</h3>
+                <p className="text-sm text-gray-400 truncate">
+                  {track.artists.map(a => a.name).join(', ')}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        {artists.map((artist, index) => (
-          <div key={artist.id} className="group">
-            <div className="relative aspect-square">
-              <img
-                src={artist.images[0]?.url}
-                alt={artist.name}
-                className="w-full h-full object-cover rounded-full"
-              />
-            </div>
-            <div className="mt-2 text-center">
-              <h3 className="font-medium truncate">{artist.name}</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                {artist.minutes} minutes • {artist.streams} streams
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+    );
+  };
 
-  const renderAlbumList = (albums, title) => (
-    <div className="mb-12">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-purple-400">Your top albums from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
+  const renderArtistList = (artists, title) => {
+    const isExpanded = expandedSection === 'artists';
+    const displayArtists = isExpanded ? artists : artists.slice(0, 7);
+
+    return (
+      <div className="mb-12">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white">{title}</h2>
+            <p className="text-sm text-purple-400">Your top artists from {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
+          </div>
+          <motion.button
+            onClick={() => setExpandedSection(isExpanded ? null : 'artists')}
+            className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 
+                     text-purple-400 hover:text-purple-300 transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <motion.svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              transition={{ type: "spring", stiffness: 200, damping: 10 }}
+            >
+              <path d="M6 9l6 6 6-6"/>
+            </motion.svg>
+          </motion.button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+          {displayArtists.map((artist, index) => (
+            <div key={artist.id} className="group">
+              <div className="relative aspect-square">
+                <img
+                  src={artist.images[0]?.url}
+                  alt={artist.name}
+                  className="w-full h-full object-cover rounded-full"
+                />
+              </div>
+              <div className="mt-2 text-center">
+                <h3 className="font-medium truncate">{artist.name}</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {artist.minutes} minutes • {artist.streams} streams
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        {albums.map((album, index) => (
-          <div key={album.id} className="group">
-            <div className="relative aspect-square">
-              <img
-                src={album.images[0]?.url}
-                alt={album.name}
-                className="w-full h-full object-cover rounded-lg"
-              />
-            </div>
-            <div className="mt-2">
-              <h3 className="font-medium truncate">{album.name}</h3>
-              <p className="text-sm text-gray-400 truncate">
-                {album.artists.map(a => a.name).join(', ')}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {album.playCount} plays
-              </p>
-            </div>
+    );
+  };
+
+  const renderAlbumList = (albums, title) => {
+    const isExpanded = expandedSection === 'albums';
+    const displayAlbums = isExpanded ? albums : albums.slice(0, 7);
+
+    return (
+      <div className="mb-12">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white">{title}</h2>
+            <p className="text-sm text-purple-400">Your top albums from {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
           </div>
-        ))}
+          <motion.button
+            onClick={() => setExpandedSection(isExpanded ? null : 'albums')}
+            className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 
+                     text-purple-400 hover:text-purple-300 transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <motion.svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              transition={{ type: "spring", stiffness: 200, damping: 10 }}
+            >
+              <path d="M6 9l6 6 6-6"/>
+            </motion.svg>
+          </motion.button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+          {displayAlbums.map((album, index) => (
+            <div key={album.id} className="group">
+              <div className="relative aspect-square">
+                <img
+                  src={album.images[0]?.url}
+                  alt={album.name}
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              </div>
+              <div className="mt-2">
+                <h3 className="font-medium truncate">{album.name}</h3>
+                <p className="text-sm text-gray-400 truncate">
+                  {album.artists.map(a => a.name).join(', ')}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {album.playCount} plays
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
