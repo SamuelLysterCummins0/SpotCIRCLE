@@ -14,15 +14,15 @@ const TimeRanges = {
 };
 
 const TimeRangeLabels = {
-  'short_term': 'Last 4 Weeks',
-  'medium_term': 'Last 6 Months', 
-  'long_term': 'All Time'
+  short_term: 'Last 4 Weeks',
+  medium_term: 'Last 6 Months', 
+  long_term: 'Last Year'
 };
 
 const timeRanges = [
   { id: TimeRanges.SHORT, label: TimeRangeLabels.short_term },
   { id: TimeRanges.MEDIUM, label: TimeRangeLabels.medium_term },
-  { id: TimeRanges.LONG, label: TimeRangeLabels.lifetime }
+  { id: TimeRanges.LONG, label: TimeRangeLabels.long_term }
 ];
 
 const Home = () => {
@@ -36,9 +36,8 @@ const Home = () => {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [queue, setQueue] = useState([]);
-  const [timeRange, setTimeRange] = useState(TimeRanges.SHORT);
-  const [hoveredTrack, setHoveredTrack] = useState(null);
   const [selectedTimeRange, setSelectedTimeRange] = useState(TimeRanges.SHORT);
+  const [hoveredTrack, setHoveredTrack] = useState(null);
   const [expandedSection, setExpandedSection] = useState(null);
   const { scrollY } = useScroll();
   
@@ -98,15 +97,22 @@ const Home = () => {
       setLoading(true);
       setError(null);
       
+      console.log('Fetching data with time range:', selectedTimeRange); // Add logging
+      
+      // Fetch both tracks and artists with the same time range
       const [topTracksData, topArtistsData] = await Promise.all([
         fetchData(`/tracks/top?time_range=${selectedTimeRange}`),
         fetchData(`/artists/top?time_range=${selectedTimeRange}`)
       ]);
   
+      console.log('Received tracks:', topTracksData?.length); // Add logging
+      console.log('Received artists:', topArtistsData?.length); // Add logging
+      
+      // Update tracks first
       setTopTracks(topTracksData || []);
       setTopArtists(topArtistsData || []);
   
-      // Generate top albums from the current time range's top tracks
+      // Generate top albums from the tracks
       const albumsMap = new Map();
       if (topTracksData) {
         topTracksData.forEach(track => {
@@ -134,7 +140,6 @@ const Home = () => {
         .slice(0, 10);
   
       setTopAlbums(topAlbumsData);
-  
     } catch (err) {
       console.error('Error fetching data:', err);
       setError('Failed to load music data. Please try again.');
@@ -150,7 +155,7 @@ const Home = () => {
       return;
     }
     fetchAllData();
-  }, [navigate, selectedTimeRange]);
+  }, [navigate, selectedTimeRange]); // Re-fetch when time range changes
 
   const handleLogout = () => {
     localStorage.removeItem('spotify_access_token');
@@ -213,24 +218,24 @@ const Home = () => {
             <p className="text-sm text-purple-400">Your top tracks from {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
           </div>
           <div className="flex items-center gap-2">
-          <select
-  value={selectedTimeRange}
-  onChange={(e) => setSelectedTimeRange(e.target.value)}
-  className="px-3 py-1 text-sm rounded-full bg-black/40 border border-purple-500/20 
-             text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
-             focus:outline-none focus:ring-2 focus:ring-purple-500/40
-             pr-8 relative transition-colors backdrop-blur-sm"
-  style={{
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 8px center',
-    backgroundSize: '16px'
-  }}
->
-  <option value={TimeRanges.SHORT} className="bg-black text-purple-400">Last 4 Weeks</option>
-  <option value={TimeRanges.MEDIUM} className="bg-black text-purple-400">Last 6 Months</option>
-  <option value={TimeRanges.LONG} className="bg-black text-purple-400">All Time</option>
-</select>
+            <select
+              value={selectedTimeRange}
+              onChange={(e) => setSelectedTimeRange(e.target.value)}
+              className="px-3 py-1 text-sm rounded-full bg-black/40 border border-purple-500/20 
+                       text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
+                       focus:outline-none focus:ring-2 focus:ring-purple-500/40
+                       pr-8 relative transition-colors backdrop-blur-sm"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 8px center',
+                backgroundSize: '16px'
+              }}
+            >
+              <option value={TimeRanges.SHORT} className="bg-black text-purple-400">Last 4 Weeks</option>
+              <option value={TimeRanges.MEDIUM} className="bg-black text-purple-400">Last 6 Months</option>
+              <option value={TimeRanges.LONG} className="bg-black text-purple-400">Last Year</option>
+            </select>
             <motion.button
               onClick={() => setExpandedSection(isExpanded ? null : 'tracks')}
               className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 
@@ -289,12 +294,12 @@ const Home = () => {
                 )}
               </div>
               <div className="mt-2">
-                <h3 className="font-medium truncate">{track.name}</h3>
+                <h3 className="font-medium truncate">{index + 1}. {track.name}</h3>
                 <p className="text-sm text-gray-400 truncate">
                   {track.artists.map(a => a.name).join(', ')}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
+                  {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
                 </p>
               </div>
             </div>
@@ -347,12 +352,12 @@ const Home = () => {
                   )}
                 </div>
                 <div className="mt-2">
-                  <h3 className="font-medium truncate">{track.name}</h3>
+                  <h3 className="font-medium truncate">{index + 8}. {track.name}</h3>
                   <p className="text-sm text-gray-400 truncate">
                     {track.artists.map(a => a.name).join(', ')}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
+                    {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
                   </p>
                 </div>
               </motion.div>
@@ -410,10 +415,7 @@ const Home = () => {
                 />
               </div>
               <div className="mt-2 text-center">
-                <h3 className="font-medium truncate">{artist.name}</h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  {artist.minutes} minutes • {artist.streams} streams
-                </p>
+                <h3 className="font-medium truncate">{index + 1}. {artist.name}</h3>
               </div>
             </div>
           ))}
@@ -446,10 +448,7 @@ const Home = () => {
                   />
                 </div>
                 <div className="mt-2 text-center">
-                  <h3 className="font-medium truncate">{artist.name}</h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {artist.minutes} minutes • {artist.streams} streams
-                  </p>
+                  <h3 className="font-medium truncate">{index + 8}. {artist.name}</h3>
                 </div>
               </motion.div>
             ))}
@@ -506,12 +505,9 @@ const Home = () => {
                 />
               </div>
               <div className="mt-2">
-                <h3 className="font-medium truncate">{album.name}</h3>
+                <h3 className="font-medium truncate">{index + 1}. {album.name}</h3>
                 <p className="text-sm text-gray-400 truncate">
                   {album.artists.map(a => a.name).join(', ')}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {album.playCount} plays
                 </p>
               </div>
             </div>
@@ -545,12 +541,9 @@ const Home = () => {
                   />
                 </div>
                 <div className="mt-2">
-                  <h3 className="font-medium truncate">{album.name}</h3>
+                  <h3 className="font-medium truncate">{index + 8}. {album.name}</h3>
                   <p className="text-sm text-gray-400 truncate">
                     {album.artists.map(a => a.name).join(', ')}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {album.playCount} plays
                   </p>
                 </div>
               </motion.div>

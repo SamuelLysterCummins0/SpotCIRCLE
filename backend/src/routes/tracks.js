@@ -53,9 +53,10 @@ router.get('/', setAccessToken, async (req, res) => {
 // Get user's top tracks
 router.get('/top', setAccessToken, async (req, res) => {
     try {
+        const { time_range = 'short_term' } = req.query;
         const data = await spotifyApi.getMyTopTracks({
             limit: 50,
-            time_range: 'short_term' // Can be long_term, medium_term, short_term
+            time_range // Use the time_range from query params
         });
 
         const tracks = data.body.items.map(track => transformTrack(track));
