@@ -3,7 +3,6 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import PlayerNotch from '../components/PlayerNotch';
 import SpotifyPlayer from '../components/SpotifyPlayer';
-import { motion, useScroll, useTransform } from 'framer-motion';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -178,46 +177,6 @@ const Home = () => {
     }
   };
 
-  const handleArtistPlay = async (artist) => {
-    try {
-      const response = await fetch(`${API_URL}/artists/${artist.id}/top-tracks`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotifyToken')}`
-        }
-      });
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const randomTrack = data[Math.floor(Math.random() * data.length)];
-        handleTrackSelect(randomTrack);
-      }
-    } catch (error) {
-      console.error('Error playing artist track:', error);
-    }
-  };
-
-  const handleAlbumPlay = async (album) => {
-    try {
-      const response = await fetch(`${API_URL}/albums/${album.id}/tracks`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotifyToken')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ albumImages: album.images })
-      });
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const randomTrack = data[Math.floor(Math.random() * data.length)];
-        handleTrackSelect(randomTrack);
-      }
-    } catch (error) {
-      console.error('Error playing album track:', error);
-    }
-  };
-
-  const { scrollY } = useScroll();
-  const backgroundY = useTransform(scrollY, [0, 1000], [0, 200]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-black">
@@ -233,14 +192,14 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-green-400">Your top tracks from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold">{title}</h2>
+          <p className="text-sm text-gray-400">Your top tracks from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setTimeRange(TimeRanges.SHORT)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.SHORT ? 'bg-green-500 text-black' : 'text-green-400 hover:bg-green-500/10'
+              timeRange === TimeRanges.SHORT ? 'bg-white text-black' : 'text-white hover:bg-white/10'
             }`}
           >
             4 weeks
@@ -248,7 +207,7 @@ const Home = () => {
           <button
             onClick={() => setTimeRange(TimeRanges.MEDIUM)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.MEDIUM ? 'bg-green-500 text-black' : 'text-green-400 hover:bg-green-500/10'
+              timeRange === TimeRanges.MEDIUM ? 'bg-white text-black' : 'text-white hover:bg-white/10'
             }`}
           >
             6 months
@@ -256,7 +215,7 @@ const Home = () => {
           <button
             onClick={() => setTimeRange(TimeRanges.LONG)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.LONG ? 'bg-green-500 text-black' : 'text-green-400 hover:bg-green-500/10'
+              timeRange === TimeRanges.LONG ? 'bg-white text-black' : 'text-white hover:bg-white/10'
             }`}
           >
             All time
@@ -296,11 +255,11 @@ const Home = () => {
               )}
             </div>
             <div className="mt-2">
-              <h3 className="font-medium truncate text-white">{track.name}</h3>
-              <p className="text-sm text-white/80 truncate">
+              <h3 className="font-medium truncate">{track.name}</h3>
+              <p className="text-sm text-gray-400 truncate">
                 {track.artists.map(a => a.name).join(', ')}
               </p>
-              <p className="text-xs text-white/60 mt-1">
+              <p className="text-xs text-gray-500 mt-1">
                 {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')} • {index + 1} streams
               </p>
             </div>
@@ -314,40 +273,23 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-green-400">Your top artists from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold">{title}</h2>
+          <p className="text-sm text-gray-400">Your top artists from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
         {artists.map((artist, index) => (
-          <div 
-            key={artist.id} 
-            className="group relative"
-            onMouseEnter={() => setHoveredTrack(artist.id)}
-            onMouseLeave={() => setHoveredTrack(null)}
-          >
+          <div key={artist.id} className="group">
             <div className="relative aspect-square">
               <img
                 src={artist.images[0]?.url}
                 alt={artist.name}
                 className="w-full h-full object-cover rounded-full"
               />
-              {hoveredTrack === artist.id && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-full">
-                  <button 
-                    className="p-3 bg-green-500 rounded-full hover:scale-105 transition-transform"
-                    onClick={() => handleArtistPlay(artist)}
-                  >
-                    <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </button>
-                </div>
-              )}
             </div>
             <div className="mt-2 text-center">
-              <h3 className="font-medium truncate text-white">{artist.name}</h3>
-              <p className="text-xs text-white/60 mt-1">
+              <h3 className="font-medium truncate">{artist.name}</h3>
+              <p className="text-xs text-gray-500 mt-1">
                 {artist.minutes} minutes • {artist.streams} streams
               </p>
             </div>
@@ -361,43 +303,26 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">{title}</h2>
-          <p className="text-sm text-green-400">Your top albums from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold">{title}</h2>
+          <p className="text-sm text-gray-400">Your top albums from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
         {albums.map((album, index) => (
-          <div 
-            key={album.id} 
-            className="group relative"
-            onMouseEnter={() => setHoveredTrack(album.id)}
-            onMouseLeave={() => setHoveredTrack(null)}
-          >
+          <div key={album.id} className="group">
             <div className="relative aspect-square">
               <img
                 src={album.images[0]?.url}
                 alt={album.name}
                 className="w-full h-full object-cover rounded-lg"
               />
-              {hoveredTrack === album.id && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
-                  <button 
-                    className="p-3 bg-green-500 rounded-full hover:scale-105 transition-transform"
-                    onClick={() => handleAlbumPlay(album)}
-                  >
-                    <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </button>
-                </div>
-              )}
             </div>
             <div className="mt-2">
-              <h3 className="font-medium truncate text-white">{album.name}</h3>
-              <p className="text-sm text-white/80 truncate">
+              <h3 className="font-medium truncate">{album.name}</h3>
+              <p className="text-sm text-gray-400 truncate">
                 {album.artists.map(a => a.name).join(', ')}
               </p>
-              <p className="text-xs text-white/60 mt-1">
+              <p className="text-xs text-gray-500 mt-1">
                 {album.playCount} plays
               </p>
             </div>
@@ -408,20 +333,13 @@ const Home = () => {
   );
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      <motion.div 
-        className="absolute inset-0 pointer-events-none"
-        style={{ y: backgroundY }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-green-400/5 via-green-400/2 to-transparent" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-from)_0%,_transparent_65%)] from-green-400/3" />
-      </motion.div>
-      <div className="max-w-[1800px] mx-auto p-8 relative">
+    <div className="min-h-screen bg-black text-white">
+      <div className="max-w-[1800px] mx-auto p-8">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-white">SpotCIRCLE</h1>
+          <h1 className="text-4xl font-bold">SpotCIRCLE</h1>
           <button
             onClick={handleLogout}
-            className="px-4 py-2 bg-green-500/10 text-green-400 rounded-full hover:bg-green-500/20 hover:text-green-300 transition-colors"
+            className="px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors"
           >
             Logout
           </button>
@@ -432,16 +350,16 @@ const Home = () => {
             {error}
             <button
               onClick={() => window.location.reload()}
-              className="block mx-auto mt-4 px-4 py-2 bg-green-500/10 text-green-400 rounded-full hover:bg-green-500/20 hover:text-green-300 transition-colors"
+              className="block mx-auto mt-4 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors"
             >
               Try Again
             </button>
           </div>
         ) : (
           <>
-            {renderTrackList(topTracks, 'Top Tracks')}
-            {renderArtistList(topArtists, 'Top Artists')}
-            {renderAlbumList(topAlbums, 'Top Albums')}
+            {renderTrackList(topTracks, 'Top tracks')}
+            {renderArtistList(topArtists, 'Top artists')}
+            {renderAlbumList(topAlbums, 'Top albums')}
           </>
         )}
 
