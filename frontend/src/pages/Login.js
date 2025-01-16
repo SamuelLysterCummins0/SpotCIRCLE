@@ -118,23 +118,30 @@ const Login = () => {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-purple-900 to-black">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-8">Welcome to SpotCIRCLE</h1>
-        {error && (
-          <div className="mb-4 text-red-500 bg-red-100/10 p-3 rounded max-w-md">
-            {error}
-          </div>
-        )}
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          className={`px-8 py-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors duration-200 flex items-center space-x-2 ${
-            loading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-        >
-          <span>Login with Spotify</span>
-        </button>
+    <div className="min-h-screen bg-black relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-purple-900/10 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-from)_0%,_transparent_65%)] from-purple-900/10" />
+      </div>
+      <div className="relative flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <h1 className="text-6xl font-bold mb-8 text-white bg-clip-text">SpotCIRCLE</h1>
+          {error && (
+            <div className="mb-4 text-red-500 bg-red-500/10 p-3 rounded-lg backdrop-blur-sm max-w-md">
+              {error}
+            </div>
+          )}
+          <button
+            onClick={handleLogin}
+            disabled={loading}
+            className="px-8 py-4 bg-purple-600 text-white rounded-full font-bold text-lg 
+                     hover:bg-purple-500 transition-all duration-300 transform hover:scale-105
+                     disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
+                     shadow-lg shadow-purple-500/20"
+          >
+            {loading ? 'Connecting...' : 'Login with Spotify'}
+          </button>
+        </div>
       </div>
     </div>
   );

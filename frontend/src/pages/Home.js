@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import PlayerNotch from '../components/PlayerNotch';
 import SpotifyPlayer from '../components/SpotifyPlayer';
 
@@ -18,6 +19,12 @@ const TimeRangeLabels = {
   [TimeRanges.LONG]: 'All time'
 };
 
+const timeRanges = [
+  { id: TimeRanges.SHORT, label: TimeRangeLabels[TimeRanges.SHORT] },
+  { id: TimeRanges.MEDIUM, label: TimeRangeLabels[TimeRanges.MEDIUM] },
+  { id: TimeRanges.LONG, label: TimeRangeLabels[TimeRanges.LONG] }
+];
+
 const Home = () => {
   const navigate = useNavigate();
   const [tracks, setTracks] = useState([]);
@@ -31,6 +38,12 @@ const Home = () => {
   const [queue, setQueue] = useState([]);
   const [timeRange, setTimeRange] = useState(TimeRanges.SHORT);
   const [hoveredTrack, setHoveredTrack] = useState(null);
+  const [selectedTimeRange, setSelectedTimeRange] = useState(TimeRanges.SHORT);
+  const { scrollY } = useScroll();
+  
+  // Parallax effect values
+  const backgroundY = useTransform(scrollY, [0, 500], [0, 150]);
+  const opacity = useTransform(scrollY, [0, 200], [1, 0]);
 
   const refreshAccessToken = async () => {
     try {
@@ -85,8 +98,8 @@ const Home = () => {
       setError(null);
       
       const [topTracksData, topArtistsData] = await Promise.all([
-        fetchData(`/tracks/top?time_range=${timeRange}`),
-        fetchData(`/artists/top?time_range=${timeRange}`)
+        fetchData(`/tracks/top?time_range=${selectedTimeRange}`),
+        fetchData(`/artists/top?time_range=${selectedTimeRange}`)
       ]);
 
       // Initialize arrays if they're undefined
@@ -117,6 +130,7 @@ const Home = () => {
         .sort((a, b) => b.playCount - a.playCount)
         .slice(0, 10)
         .map(album => ({
+
           ...album,
           artists: album.artists || [] // Ensure artists is always an array
         }));
@@ -138,7 +152,7 @@ const Home = () => {
       return;
     }
     fetchAllData();
-  }, [navigate, timeRange]);
+  }, [navigate, selectedTimeRange]);
 
   const handleLogout = () => {
     localStorage.removeItem('spotify_access_token');
@@ -192,30 +206,36 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="text-sm text-gray-400">Your top tracks from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
+          <p className="text-sm text-purple-400">Your top tracks from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setTimeRange(TimeRanges.SHORT)}
+            onClick={() => setSelectedTimeRange(TimeRanges.SHORT)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.SHORT ? 'bg-white text-black' : 'text-white hover:bg-white/10'
+              selectedTimeRange === TimeRanges.SHORT
+                ? 'bg-purple-600 text-white'
+                : 'text-purple-400 hover:bg-purple-600/20'
             }`}
           >
             4 weeks
           </button>
           <button
-            onClick={() => setTimeRange(TimeRanges.MEDIUM)}
+            onClick={() => setSelectedTimeRange(TimeRanges.MEDIUM)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.MEDIUM ? 'bg-white text-black' : 'text-white hover:bg-white/10'
+              selectedTimeRange === TimeRanges.MEDIUM
+                ? 'bg-purple-600 text-white'
+                : 'text-purple-400 hover:bg-purple-600/20'
             }`}
           >
             6 months
           </button>
           <button
-            onClick={() => setTimeRange(TimeRanges.LONG)}
+            onClick={() => setSelectedTimeRange(TimeRanges.LONG)}
             className={`px-3 py-1 text-sm rounded-full transition-colors ${
-              timeRange === TimeRanges.LONG ? 'bg-white text-black' : 'text-white hover:bg-white/10'
+              selectedTimeRange === TimeRanges.LONG
+                ? 'bg-purple-600 text-white'
+                : 'text-purple-400 hover:bg-purple-600/20'
             }`}
           >
             All time
@@ -273,8 +293,8 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="text-sm text-gray-400">Your top artists from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
+          <p className="text-sm text-purple-400">Your top artists from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -303,8 +323,8 @@ const Home = () => {
     <div className="mb-12">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold">{title}</h2>
-          <p className="text-sm text-gray-400">Your top albums from the {TimeRangeLabels[timeRange].toLowerCase()}</p>
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
+          <p className="text-sm text-purple-400">Your top albums from the {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -333,54 +353,56 @@ const Home = () => {
   );
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-[1800px] mx-auto p-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold">SpotCIRCLE</h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors"
-          >
-            Logout
-          </button>
-        </div>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-purple-900/10 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-from)_0%,_transparent_65%)] from-purple-900/10" />
+      </div>
 
-        {error ? (
-          <div className="text-center text-red-500 bg-red-500/10 p-4 rounded-lg">
-            {error}
+      {/* Content */}
+      <div className="relative">
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-purple-400">
+              SpotCIRCLE
+            </h1>
             <button
-              onClick={() => window.location.reload()}
-              className="block mx-auto mt-4 px-4 py-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors"
+              onClick={handleLogout}
+              className="px-4 py-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 
+                       text-purple-400 hover:text-purple-300 transition-all duration-300 
+                       border border-purple-500/20 backdrop-blur-sm"
             >
-              Try Again
+              Logout
             </button>
           </div>
-        ) : (
-          <>
+
+          {/* Tracks List */}
+          <div className="space-y-4">
             {renderTrackList(topTracks, 'Top tracks')}
             {renderArtistList(topArtists, 'Top artists')}
             {renderAlbumList(topAlbums, 'Top albums')}
-          </>
-        )}
-
-        {currentTrack && (
-          <>
-            <PlayerNotch
-              track={currentTrack}
-              isPlaying={isPlaying}
-              onPlayPause={handlePlayPause}
-              onNext={handleNext}
-              onPrevious={handlePrevious}
-              queue={queue}
-            />
-            <SpotifyPlayer
-              uri={currentTrack.uri}
-              isPlaying={isPlaying}
-              onPlayPause={setIsPlaying}
-            />
-          </>
-        )}
+          </div>
+        </div>
       </div>
+
+      {currentTrack && (
+        <>
+          <PlayerNotch
+            track={currentTrack}
+            isPlaying={isPlaying}
+            onPlayPause={handlePlayPause}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            queue={queue}
+          />
+          <SpotifyPlayer
+            uri={currentTrack.uri}
+            isPlaying={isPlaying}
+            onPlayPause={setIsPlaying}
+          />
+        </>
+      )}
     </div>
   );
 };
