@@ -3,6 +3,7 @@ const Track = require('../models/Track');
 const Artist = require('../models/Artist');
 const Album = require('../models/Album');
 const spotifyApi = require('../config/spotify');
+const axios = require('axios');
 
 // Cache to prevent code reuse
 const usedCodes = new Set();
@@ -175,11 +176,66 @@ const getRecentTracks = async (req, res) => {
   }
 };
 
+// Get artist's top tracks
+const getArtistTopTracks = async (req, res) => {
+  try {
+    const artistId = req.params.artistId;
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const response = await axios.get(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=US`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    res.json(response.data.tracks);
+  } catch (error) {
+    console.error('Error fetching artist top tracks:', error);
+    res.status(500).json({ error: 'Failed to fetch artist top tracks' });
+  }
+};
+
+// Get album tracks
+const getAlbumTracks = async (req, res) => {
+  try {
+    const albumId = req.params.albumId;
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const response = await axios.get(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    // Add additional track details needed for playback
+    const tracks = response.data.items.map(track => ({
+      ...track,
+      album: {
+        id: albumId,
+        images: req.body.albumImages || []
+      }
+    }));
+
+    res.json(tracks);
+  } catch (error) {
+    console.error('Error fetching album tracks:', error);
+    res.status(500).json({ error: 'Failed to fetch album tracks' });
+  }
+};
+
 module.exports = {
   getLoginUrl,
   handleCallback,
   refreshToken,
   getTopTracks,
   getTopArtists,
-  getRecentTracks
+  getRecentTracks,
+  getArtistTopTracks,
+  getAlbumTracks
 };

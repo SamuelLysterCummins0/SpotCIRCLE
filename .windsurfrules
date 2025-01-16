@@ -1,0 +1,10 @@
+Implement all animations using Framer Motion, following the established smoothness and sophistication of the PlayerNotch component.
+Maintain consistent dark theme and utilize Tailwind's utility classes for responsive design and aesthetics.
+Follow the existing component structure and authentication patterns when implementing new Spotify integration features.
+Reference all related files when making changes to ensure cross-component functionality remains intact.
+Implement real-time features using the established WebSocket patterns in the backend.
+Maintain privacy-first approach by following existing data handling patterns.
+Create interactive elements that enhance the music-focused user experience.
+Follow MongoDB schema patterns for data consistency.
+Implement error handling consistently across both frontend and backend.
+Ensure all new features match the polish level of existing components.

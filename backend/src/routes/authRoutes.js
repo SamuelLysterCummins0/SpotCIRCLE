@@ -71,4 +71,7 @@ router.get('/refresh', async (req, res) => {
   }
 });
 
+router.get('/artists/:artistId/top-tracks', authController.getArtistTopTracks);
+router.get('/albums/:albumId/tracks', authController.getAlbumTracks);
+
 module.exports = router;
