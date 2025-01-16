@@ -8,29 +8,20 @@ import SpotifyPlayer from '../components/SpotifyPlayer';
 const API_URL = 'http://localhost:5001/api';
 
 const TimeRanges = {
-  TODAY: 'today',
-  THIS_WEEK: 'this_week',
-  SHORT: 'short_term',
-  MEDIUM: 'medium_term',
-  YEAR: '2025',
-  LONG: 'lifetime'
+  SHORT: 'short_term',     // Last 4 weeks
+  MEDIUM: 'medium_term',   // Last 6 months
+  LONG: 'long_term'       // All time/Lifetime
 };
 
 const TimeRangeLabels = {
-  today: 'Today',
-  this_week: 'This Week',
-  short_term: '4 Weeks',
-  medium_term: '6 Months',
-  '2025': '2025',
-  lifetime: 'Lifetime'
+  'short_term': 'Last 4 Weeks',
+  'medium_term': 'Last 6 Months', 
+  'long_term': 'All Time'
 };
 
 const timeRanges = [
-  { id: TimeRanges.TODAY, label: TimeRangeLabels.today },
-  { id: TimeRanges.THIS_WEEK, label: TimeRangeLabels.this_week },
   { id: TimeRanges.SHORT, label: TimeRangeLabels.short_term },
   { id: TimeRanges.MEDIUM, label: TimeRangeLabels.medium_term },
-  { id: TimeRanges.YEAR, label: TimeRangeLabels.year },
   { id: TimeRanges.LONG, label: TimeRangeLabels.lifetime }
 ];
 
@@ -111,42 +102,39 @@ const Home = () => {
         fetchData(`/tracks/top?time_range=${selectedTimeRange}`),
         fetchData(`/artists/top?time_range=${selectedTimeRange}`)
       ]);
-
-      // Initialize arrays if they're undefined
+  
       setTopTracks(topTracksData || []);
       setTopArtists(topArtistsData || []);
-
-      // Generate top albums from top tracks
+  
+      // Generate top albums from the current time range's top tracks
       const albumsMap = new Map();
       if (topTracksData) {
         topTracksData.forEach(track => {
-          if (track.album && !albumsMap.has(track.album.id)) {
-            albumsMap.set(track.album.id, {
-              ...track.album,
-              playCount: 1,
-              artists: track.artists // Add artists from the track
-            });
-          } else if (track.album) {
-            const album = albumsMap.get(track.album.id);
-            albumsMap.set(track.album.id, {
-              ...album,
-              playCount: album.playCount + 1
-            });
+          if (track.album) {
+            const albumId = track.album.id;
+            if (!albumsMap.has(albumId)) {
+              albumsMap.set(albumId, {
+                ...track.album,
+                playCount: 1,
+                artists: track.artists
+              });
+            } else {
+              const album = albumsMap.get(albumId);
+              albumsMap.set(albumId, {
+                ...album,
+                playCount: album.playCount + 1
+              });
+            }
           }
         });
       }
-
+  
       const topAlbumsData = Array.from(albumsMap.values())
         .sort((a, b) => b.playCount - a.playCount)
-        .slice(0, 10)
-        .map(album => ({
-
-          ...album,
-          artists: album.artists || [] // Ensure artists is always an array
-        }));
-
+        .slice(0, 10);
+  
       setTopAlbums(topAlbumsData);
-
+  
     } catch (err) {
       console.error('Error fetching data:', err);
       setError('Failed to load music data. Please try again.');
@@ -225,27 +213,24 @@ const Home = () => {
             <p className="text-sm text-purple-400">Your top tracks from {TimeRangeLabels[selectedTimeRange].toLowerCase()}</p>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={selectedTimeRange}
-              onChange={(e) => setSelectedTimeRange(e.target.value)}
-              className="px-3 py-1 text-sm rounded-full bg-black/40 border border-purple-500/20 
-                       text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
-                       focus:outline-none focus:ring-2 focus:ring-purple-500/40
-                       pr-8 relative transition-colors backdrop-blur-sm"
-              style={{
-                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 8px center',
-                backgroundSize: '16px'
-              }}
-            >
-              <option value={TimeRanges.TODAY} className="bg-black text-purple-400">Today</option>
-              <option value={TimeRanges.THIS_WEEK} className="bg-black text-purple-400">This Week</option>
-              <option value={TimeRanges.SHORT} className="bg-black text-purple-400">4 Weeks</option>
-              <option value={TimeRanges.MEDIUM} className="bg-black text-purple-400">6 Months</option>
-              <option value={TimeRanges.YEAR} className="bg-black text-purple-400">2025</option>
-              <option value={TimeRanges.LONG} className="bg-black text-purple-400">Lifetime</option>
-            </select>
+          <select
+  value={selectedTimeRange}
+  onChange={(e) => setSelectedTimeRange(e.target.value)}
+  className="px-3 py-1 text-sm rounded-full bg-black/40 border border-purple-500/20 
+             text-purple-400 hover:bg-purple-600/20 cursor-pointer appearance-none
+             focus:outline-none focus:ring-2 focus:ring-purple-500/40
+             pr-8 relative transition-colors backdrop-blur-sm"
+  style={{
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239F7AEA'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 8px center',
+    backgroundSize: '16px'
+  }}
+>
+  <option value={TimeRanges.SHORT} className="bg-black text-purple-400">Last 4 Weeks</option>
+  <option value={TimeRanges.MEDIUM} className="bg-black text-purple-400">Last 6 Months</option>
+  <option value={TimeRanges.LONG} className="bg-black text-purple-400">All Time</option>
+</select>
             <motion.button
               onClick={() => setExpandedSection(isExpanded ? null : 'tracks')}
               className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 

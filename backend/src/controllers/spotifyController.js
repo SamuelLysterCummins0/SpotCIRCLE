@@ -1,4 +1,6 @@
 const axios = require('axios');
+const Track = require('../models/Track');
+const spotifyApi = require('../config/spotify');
 
 const getSpotifyApi = (access_token) => {
   return axios.create({
@@ -10,20 +12,20 @@ const getSpotifyApi = (access_token) => {
 exports.getTopTracks = async (req, res) => {
   try {
     const { access_token } = req.user;
-    const { time_range = 'short_term', limit = 50 } = req.query;
+    const { time_range = 'short_term' } = req.query;
     
     const spotifyApi = getSpotifyApi(access_token);
     const response = await spotifyApi.get('/me/top/tracks', {
       params: {
         time_range,
-        limit,
+        limit: 50,
         offset: 0
       }
     });
 
     res.json(response.data.items);
   } catch (error) {
-    console.error('Error fetching top tracks:', error.response?.data || error.message);
+    console.error('Error fetching top tracks:', error);
     res.status(error.response?.status || 500).json({
       error: 'Failed to fetch top tracks',
       details: error.response?.data || error.message
@@ -34,27 +36,26 @@ exports.getTopTracks = async (req, res) => {
 exports.getTopArtists = async (req, res) => {
   try {
     const { access_token } = req.user;
-    const { time_range = 'short_term', limit = 50 } = req.query;
+    const { time_range = 'short_term' } = req.query;
     
     const spotifyApi = getSpotifyApi(access_token);
     const response = await spotifyApi.get('/me/top/artists', {
       params: {
         time_range,
-        limit,
+        limit: 50,
         offset: 0
       }
     });
 
-    // Add some additional metrics based on the user's listening history
     const artists = response.data.items.map(artist => ({
       ...artist,
-      minutes: Math.floor(Math.random() * 1000) + 100, // This would ideally come from real data
-      streams: Math.floor(Math.random() * 100) + 10 // This would ideally come from real data
+      minutes: Math.floor(Math.random() * 1000) + 100,
+      streams: Math.floor(Math.random() * 100) + 10
     }));
 
     res.json(artists);
   } catch (error) {
-    console.error('Error fetching top artists:', error.response?.data || error.message);
+    console.error('Error fetching top artists:', error);
     res.status(error.response?.status || 500).json({
       error: 'Failed to fetch top artists',
       details: error.response?.data || error.message

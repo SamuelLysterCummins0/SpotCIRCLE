@@ -110,7 +110,7 @@ const getTopTracks = async (req, res) => {
     spotifyApi.setAccessToken(token);
     const data = await spotifyApi.getMyTopTracks({
       limit: 50,
-      time_range
+      time_range: time_range
     });
 
     // Transform track data to include necessary fields
