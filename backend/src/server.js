@@ -7,6 +7,7 @@ const SpotifyWebApi = require('spotify-web-api-node');
 const authRoutes = require('./routes/auth');
 const tracksRoutes = require('./routes/tracks');
 const artistsRoutes = require('./routes/artists');
+const spotifyRoutes = require('./routes/spotify');
 
 // Load environment variables
 dotenv.config();
@@ -47,6 +48,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/tracks', tracksRoutes);
 app.use('/api/artists', artistsRoutes);
+app.use('/api/spotify', spotifyRoutes);
 
 // Basic route
 app.get('/', (req, res) => {

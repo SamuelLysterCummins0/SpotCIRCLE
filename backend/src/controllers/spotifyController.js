@@ -14,8 +14,8 @@ exports.getTopTracks = async (req, res) => {
     const { access_token } = req.user;
     const { time_range = 'short_term', limit = 50 } = req.query;
     
-    const spotifyApi = getSpotifyApi(access_token);
-    const response = await spotifyApi.get('/me/top/tracks', {
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const response = await spotifyApiInstance.get('/me/top/tracks', {
       params: {
         time_range,
         limit,
@@ -38,8 +38,8 @@ exports.getTopArtists = async (req, res) => {
     const { access_token } = req.user;
     const { time_range = 'short_term', limit = 50 } = req.query;
     
-    const spotifyApi = getSpotifyApi(access_token);
-    const response = await spotifyApi.get('/me/top/artists', {
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const response = await spotifyApiInstance.get('/me/top/artists', {
       params: {
         time_range,
         limit,
@@ -67,8 +67,8 @@ exports.getTopArtists = async (req, res) => {
 exports.getCurrentTrack = async (req, res) => {
   try {
     const { access_token } = req.user;
-    const spotifyApi = getSpotifyApi(access_token);
-    const response = await spotifyApi.get('/me/player/currently-playing');
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const response = await spotifyApiInstance.get('/me/player/currently-playing');
     
     res.json(response.data);
   } catch (error) {
@@ -84,24 +84,24 @@ exports.controlPlayback = async (req, res) => {
   try {
     const { access_token } = req.user;
     const { action, uri } = req.body;
-    const spotifyApi = getSpotifyApi(access_token);
+    const spotifyApiInstance = getSpotifyApi(access_token);
 
     switch (action) {
       case 'play':
         if (uri) {
-          await spotifyApi.put('/me/player/play', { uris: [uri] });
+          await spotifyApiInstance.put('/me/player/play', { uris: [uri] });
         } else {
-          await spotifyApi.put('/me/player/play');
+          await spotifyApiInstance.put('/me/player/play');
         }
         break;
       case 'pause':
-        await spotifyApi.put('/me/player/pause');
+        await spotifyApiInstance.put('/me/player/pause');
         break;
       case 'next':
-        await spotifyApi.post('/me/player/next');
+        await spotifyApiInstance.post('/me/player/next');
         break;
       case 'previous':
-        await spotifyApi.post('/me/player/previous');
+        await spotifyApiInstance.post('/me/player/previous');
         break;
       default:
         return res.status(400).json({ error: 'Invalid action' });
@@ -113,6 +113,38 @@ exports.controlPlayback = async (req, res) => {
     res.status(error.response?.status || 500).json({
       error: 'Failed to control playback',
       details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.getUserPlaylists = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    req.spotifyApi.setAccessToken(access_token);
+    const data = await req.spotifyApi.getUserPlaylists();
+    res.json(data.body.items);
+  } catch (error) {
+    console.error('Error fetching playlists:', error);
+    res.status(error.statusCode || 500).json({
+      error: 'Failed to fetch playlists',
+      details: error.message
+    });
+  }
+};
+
+exports.getPlaylistTracks = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { playlistId } = req.params;
+    req.spotifyApi.setAccessToken(access_token);
+    const data = await req.spotifyApi.getPlaylistTracks(playlistId);
+    const tracks = data.body.items.map(item => item.track);
+    res.json(tracks);
+  } catch (error) {
+    console.error('Error fetching playlist tracks:', error);
+    res.status(error.statusCode || 500).json({
+      error: 'Failed to fetch playlist tracks',
+      details: error.message
     });
   }
 };
