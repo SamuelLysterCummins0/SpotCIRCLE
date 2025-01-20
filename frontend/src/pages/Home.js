@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import PlayerNotch from '../components/PlayerNotch';
 import SpotifyPlayer from '../components/SpotifyPlayer';
+import axios from 'axios';
 import api from '../utils/api';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -46,6 +47,7 @@ const Home = () => {
   const [animatingPlaylist, setAnimatingPlaylist] = useState(null);
   const [isPlaylistTransition, setIsPlaylistTransition] = useState(false);
   const [showTimeRangeDropdown, setShowTimeRangeDropdown] = useState(false);
+  const [deviceId, setDeviceId] = useState(null);
   const { scrollY } = useScroll();
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
@@ -104,7 +106,7 @@ const Home = () => {
 
   
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -117,12 +119,15 @@ const Home = () => {
         fetchData(`/api/artists/top?time_range=${selectedTimeRange}&limit=21`)
       ]);
   
-      console.log('Received tracks:', topTracksData?.length);
-      console.log('Received artists:', topArtistsData?.length);
+      if (topTracksData) {
+        console.log('Received tracks:', topTracksData.length);
+        setTopTracks(topTracksData);
+      }
       
-      // Update tracks and artists with the limited data
-      setTopTracks(topTracksData || []);
-      setTopArtists(topArtistsData || []);
+      if (topArtistsData) {
+        console.log('Received artists:', topArtistsData.length);
+        setTopArtists(topArtistsData);
+      }
   
       // Generate top albums from the tracks (limited to 14)
       const albumsMap = new Map();
@@ -158,7 +163,7 @@ const Home = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTimeRange]);
 
   useEffect(() => {
     const fetchPlaylists = async () => {
@@ -212,7 +217,26 @@ const Home = () => {
       return;
     }
     fetchAllData();
-  }, [navigate, selectedTimeRange]); // Re-fetch when time range changes
+  }, [navigate, fetchAllData]); // Re-fetch when time range changes
+
+  useEffect(() => {
+    const getDevices = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/spotify/player/devices`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+          }
+        });
+        const devices = response.data.devices;
+        if (devices && devices.length > 0) {
+          setDeviceId(devices[0].id);
+        }
+      } catch (error) {
+        console.error('Error getting devices:', error);
+      }
+    };
+    getDevices();
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('spotify_access_token');
@@ -277,29 +301,33 @@ const Home = () => {
 
   const handleTrackSelect = async (track) => {
     try {
-      if (currentTrack?.id === track.id) {
+      // Get the web player device ID
+      const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+      
+      if (!webPlaybackDeviceId) {
+        console.error('Web playback device not ready');
+        return;
+      }
+
+      if (currentTrack && currentTrack.uri === track.uri) {
         // Toggle play/pause if same track
         setIsPlaying(!isPlaying);
-        if (!isPlaying) {
-          await spotifyApi.play({ uris: [track.uri] });
-        } else {
-          await spotifyApi.pause();
-        }
       } else {
         // Play new track
         setCurrentTrack(track);
         setIsPlaying(true);
-        await spotifyApi.play({ uris: [track.uri] });
       }
     } catch (error) {
       console.error('Failed to play track:', error);
-      // If there's an error, try to refresh the token and try again
-      if (error.status === 401) {
+      if (error.response?.status === 401) {
         try {
-          await refreshToken();
-          await spotifyApi.play({ uris: [track.uri] });
+          const response = await axios.get(`${API_URL}/api/auth/refresh`, { withCredentials: true });
+          if (response.data.access_token) {
+            localStorage.setItem('spotify_access_token', response.data.access_token);
+          }
         } catch (refreshError) {
-          console.error('Failed to refresh token and play:', refreshError);
+          console.error('Error refreshing token:', refreshError);
+          navigate('/login');
         }
       }
     }
@@ -307,25 +335,70 @@ const Home = () => {
 
   const handlePlayPause = async () => {
     try {
+      // Get the web player device ID
+      const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+      
+      if (!webPlaybackDeviceId) {
+        console.error('Web playback device not ready');
+        return;
+      }
+
       if (isPlaying) {
-        await spotifyApi.pause();
+        await axios.put(`${API_URL}/api/spotify/player/pause`, {
+          device_id: webPlaybackDeviceId
+        }, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
+            'Content-Type': 'application/json'
+          }
+        });
       } else if (currentTrack) {
-        await spotifyApi.play({ uris: [currentTrack.uri] });
+        await axios.put(`${API_URL}/api/spotify/player/play`, { 
+          uris: [currentTrack.uri],
+          device_id: webPlaybackDeviceId
+        }, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
+            'Content-Type': 'application/json'
+          }
+        });
       }
       setIsPlaying(!isPlaying);
     } catch (error) {
       console.error('Failed to toggle play/pause:', error);
-      if (error.status === 401) {
+      if (error.response?.status === 401) {
         try {
-          await refreshToken();
-          if (isPlaying) {
-            await spotifyApi.pause();
-          } else if (currentTrack) {
-            await spotifyApi.play({ uris: [currentTrack.uri] });
+          const response = await axios.get(`${API_URL}/api/auth/refresh`, { withCredentials: true });
+          if (response.data.access_token) {
+            localStorage.setItem('spotify_access_token', response.data.access_token);
+            // Try playing again
+            if (isPlaying) {
+              const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+              await axios.put(`${API_URL}/api/spotify/player/pause`, {
+                device_id: webPlaybackDeviceId
+              }, {
+                headers: {
+                  'Authorization': `Bearer ${response.data.access_token}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+            } else if (currentTrack) {
+              const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+              await axios.put(`${API_URL}/api/spotify/player/play`, { 
+                uris: [currentTrack.uri],
+                device_id: webPlaybackDeviceId
+              }, {
+                headers: {
+                  'Authorization': `Bearer ${response.data.access_token}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+            }
+            setIsPlaying(!isPlaying);
           }
-          setIsPlaying(!isPlaying);
         } catch (refreshError) {
-          console.error('Failed to refresh token and toggle play:', refreshError);
+          console.error('Error refreshing token:', refreshError);
+          navigate('/login');
         }
       }
     }
@@ -444,7 +517,7 @@ const Home = () => {
         <div className="space-y-2 pb-24">
           {playlistTracks.map((track, index) => (
             <TrackItem 
-              key={track.id}
+              key={`${track.id}-${index}`}
               track={track}
               onClick={() => handleTrackSelect(track)}
               isPlaying={isPlaying && currentTrack?.id === track.id}
@@ -559,7 +632,7 @@ const Home = () => {
           <AnimatePresence>
             {isExpanded && hiddenTracks.map((track, index) => (
               <motion.div
-                key={track.id}
+                key={`${track.id}-${index}`}
                 initial={{ 
                   opacity: 0,
                   scale: 0.6,
@@ -645,7 +718,7 @@ const Home = () => {
           <AnimatePresence>
             {isExpanded && hiddenArtists.map((artist, index) => (
               <motion.div
-                key={artist.id}
+                key={`${artist.id}-${index}`}
                 initial={{ 
                   opacity: 0,
                   scale: 0.6,
@@ -740,7 +813,7 @@ const Home = () => {
           <AnimatePresence>
             {isExpanded && hiddenAlbums.map((album, index) => (
               <motion.div
-                key={album.id}
+                key={`${album.id}-${index}`}
                 initial={{ 
                   opacity: 0,
                   scale: 0.6,
@@ -930,6 +1003,11 @@ const Home = () => {
 
       {/* Content */}
       <div className="relative">
+        <SpotifyPlayer
+          uri={currentTrack?.uri}
+          isPlaying={isPlaying}
+          onPlayPause={setIsPlaying}
+        />
         <div className="flex">
           {/* Playlist Sidebar */}
           <div className="fixed left-5 top-1/2 -translate-y-1/2 z-50">
@@ -937,9 +1015,9 @@ const Home = () => {
               <div 
                 className="flex flex-col gap-2 max-h-[70vh] overflow-y-auto"
               >
-                {playlists.map(playlist => (
+                {playlists.map((playlist, index) => (
                   <button
-                    key={playlist.id}
+                    key={`${playlist.id}-${index}`}
                     onClick={() => handlePlaylistSelect(playlist)}
                     className={`group relative w-36 h-12 rounded-xl overflow-hidden transition-all hover:scale-105 ${
                       selectedPlaylist?.id === playlist.id 

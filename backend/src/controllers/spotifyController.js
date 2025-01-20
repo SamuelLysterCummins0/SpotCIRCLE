@@ -5,8 +5,199 @@ const spotifyApi = require('../config/spotify');
 const getSpotifyApi = (access_token) => {
   return axios.create({
     baseURL: 'https://api.spotify.com/v1',
-    headers: { Authorization: `Bearer ${access_token}` }
+    headers: { 
+      'Authorization': `Bearer ${access_token}`,
+      'Content-Type': 'application/json'
+    }
   });
+};
+
+// Playback Controls
+exports.play = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { uris, device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    
+    // Build the endpoint with optional device_id
+    const endpoint = `/me/player/play${device_id ? `?device_id=${device_id}` : ''}`;
+    
+    // Build the request body
+    const body = {};
+    if (uris && uris.length > 0) {
+      body.uris = uris;
+    }
+
+    await spotifyApiInstance.put(endpoint, body);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error playing track:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to play track',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.pause = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    
+    // Build the endpoint with optional device_id
+    const endpoint = `/me/player/pause${device_id ? `?device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.put(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error pausing track:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to pause track',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.next = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/next${device_id ? `?device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.post(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error skipping to next track:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to skip to next track',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.previous = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/previous${device_id ? `?device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.post(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error going to previous track:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to go to previous track',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.seek = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { position_ms, device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/seek?position_ms=${position_ms}${device_id ? `&device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.put(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error seeking position:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to seek position',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.setVolume = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { volume_percent, device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/volume?volume_percent=${volume_percent}${device_id ? `&device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.put(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error setting volume:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to set volume',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.setRepeatMode = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { state, device_id } = req.body; // state can be 'track', 'context' or 'off'
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/repeat?state=${state}${device_id ? `&device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.put(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error setting repeat mode:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to set repeat mode',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.setShuffle = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { state, device_id } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const endpoint = `/me/player/shuffle?state=${state}${device_id ? `&device_id=${device_id}` : ''}`;
+    
+    await spotifyApiInstance.put(endpoint);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error setting shuffle:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to set shuffle',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+// Player State
+exports.getPlaybackState = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const response = await spotifyApiInstance.get('/me/player');
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error getting playback state:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to get playback state',
+      details: error.response?.data || error.message
+    });
+  }
+};
+
+exports.getDevices = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+    const response = await spotifyApiInstance.get('/me/player/devices');
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error getting devices:', error);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to get devices',
+      details: error.response?.data || error.message
+    });
+  }
 };
 
 exports.getTopTracks = async (req, res) => {
