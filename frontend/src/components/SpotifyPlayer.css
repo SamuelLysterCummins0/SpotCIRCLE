@@ -1,0 +1,79 @@
+.spotify-player {
+  position: relative;
+  width: 100%;
+}
+
+.notch-container {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+}
+
+.notch {
+  background: #282828;
+  border-radius: 0 0 20px 20px;
+  padding: 8px 24px;
+  min-width: 300px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.notch:hover {
+  padding-bottom: 12px;
+  background: #333;
+}
+
+.notch-content {
+  color: white;
+  text-align: center;
+}
+
+.current-track {
+  font-size: 14px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-info {
+  font-weight: 500;
+}
+
+.queue-preview {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 8px;
+}
+
+.queue-preview h4 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: #1DB954;
+  text-transform: uppercase;
+}
+
+.queue-item {
+  font-size: 12px;
+  margin: 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.queue-item:hover {
+  color: #1DB954;
+}
+
+.error {
+  color: #ff5555;
+  text-align: center;
+  padding: 8px;
+  margin: 8px 0;
+  background: rgba(255, 85, 85, 0.1);
+  border-radius: 4px;
+}

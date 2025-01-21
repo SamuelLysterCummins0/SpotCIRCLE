@@ -16,19 +16,38 @@ const getSpotifyApi = (access_token) => {
 exports.play = async (req, res) => {
   try {
     const { access_token } = req.user;
-    const { uris, device_id } = req.body;
+    const { uris, context_uri, offset, device_id } = req.body;
+    console.log('Play request received with context_uri:', context_uri, 'offset:', offset, 'device_id:', device_id);
     const spotifyApiInstance = getSpotifyApi(access_token);
     
-    // Build the endpoint with optional device_id
+    // First verify the device exists and is active
+    const devicesResponse = await spotifyApiInstance.get('/me/player/devices');
+    const devices = devicesResponse.data.devices;
+    const targetDevice = devices.find(d => d.id === device_id);
+    
+    if (!targetDevice) {
+      console.error('Device not found in available devices:', device_id);
+      console.log('Available devices:', devices);
+      return res.status(404).json({ error: 'Device not found or not active' });
+    }
+    
+    // Build the endpoint with device_id
     const endpoint = `/me/player/play${device_id ? `?device_id=${device_id}` : ''}`;
     
     // Build the request body
     const body = {};
     if (uris && uris.length > 0) {
       body.uris = uris;
+    } else if (context_uri) {
+      body.context_uri = context_uri;
+      if (offset) {
+        body.offset = offset;
+      }
     }
 
-    await spotifyApiInstance.put(endpoint, body);
+    console.log('Sending play request to Spotify API:', { endpoint, body });
+    const response = await spotifyApiInstance.put(endpoint, body);
+    console.log('Spotify API response:', response.data);
     res.json({ success: true });
   } catch (error) {
     console.error('Error playing track:', error.response?.data || error.message);
@@ -274,25 +293,25 @@ exports.getCurrentTrack = async (req, res) => {
 exports.controlPlayback = async (req, res) => {
   try {
     const { access_token } = req.user;
-    const { action, uri } = req.body;
+    const { action, uri, device_id } = req.body;
     const spotifyApiInstance = getSpotifyApi(access_token);
 
     switch (action) {
       case 'play':
         if (uri) {
-          await spotifyApiInstance.put('/me/player/play', { uris: [uri] });
+          await spotifyApiInstance.put(`/me/player/play${device_id ? `?device_id=${device_id}` : ''}`, { uris: [uri] });
         } else {
-          await spotifyApiInstance.put('/me/player/play');
+          await spotifyApiInstance.put(`/me/player/play${device_id ? `?device_id=${device_id}` : ''}`);
         }
         break;
       case 'pause':
-        await spotifyApiInstance.put('/me/player/pause');
+        await spotifyApiInstance.put(`/me/player/pause${device_id ? `?device_id=${device_id}` : ''}`);
         break;
       case 'next':
-        await spotifyApiInstance.post('/me/player/next');
+        await spotifyApiInstance.post(`/me/player/next${device_id ? `?device_id=${device_id}` : ''}`);
         break;
       case 'previous':
-        await spotifyApiInstance.post('/me/player/previous');
+        await spotifyApiInstance.post(`/me/player/previous${device_id ? `?device_id=${device_id}` : ''}`);
         break;
       default:
         return res.status(400).json({ error: 'Invalid action' });

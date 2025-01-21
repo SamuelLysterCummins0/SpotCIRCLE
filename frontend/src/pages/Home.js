@@ -300,36 +300,50 @@ const Home = () => {
   };
 
   const handleTrackSelect = async (track) => {
+    console.log('Selected Playlist:', selectedPlaylist);
+    console.log('Playlist Tracks:', playlistTracks);
+    console.log('Selected Track:', track);
+    if (!selectedPlaylist) {
+      console.error('No playlist selected.');
+      return;
+    }
     try {
-      // Get the web player device ID
       const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+      console.log('Device ID:', webPlaybackDeviceId);
       
       if (!webPlaybackDeviceId) {
         console.error('Web playback device not ready');
         return;
       }
 
-      if (currentTrack && currentTrack.uri === track.uri) {
-        // Toggle play/pause if same track
-        setIsPlaying(!isPlaying);
-      } else {
-        // Play new track
-        setCurrentTrack(track);
-        setIsPlaying(true);
-      }
-    } catch (error) {
-      console.error('Failed to play track:', error);
-      if (error.response?.status === 401) {
-        try {
-          const response = await axios.get(`${API_URL}/api/auth/refresh`, { withCredentials: true });
-          if (response.data.access_token) {
-            localStorage.setItem('spotify_access_token', response.data.access_token);
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing token:', refreshError);
-          navigate('/login');
+      // First transfer playback to our device
+      await axios.put('https://api.spotify.com/v1/me/player', {
+        device_ids: [webPlaybackDeviceId],
+        play: false
+      }, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
+          'Content-Type': 'application/json'
         }
-      }
+      });
+
+      // Wait a bit for the transfer to take effect
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Then start playback
+      const response = await axios.put(`${API_URL}/api/spotify/player/play`, {
+        context_uri: selectedPlaylist.uri,
+        offset: { position: playlistTracks.indexOf(track) },
+        device_id: webPlaybackDeviceId
+      }, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log('API response:', response.data);
+    } catch (error) {
+      console.error('Error playing track:', error);
     }
   };
 
