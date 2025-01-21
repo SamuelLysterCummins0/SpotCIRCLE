@@ -358,3 +358,68 @@ exports.getPlaylistTracks = async (req, res) => {
     });
   }
 };
+
+exports.startPlayback = async (req, res) => {
+  try {
+    const { deviceId, uris, context_uri, offset } = req.body;
+    const accessToken = req.headers.authorization.split(' ')[1];
+
+    const playbackRequest = {
+      ...(context_uri ? { context_uri } : {}),
+      ...(offset ? { offset } : {}),
+      ...(uris ? { uris } : {})
+    };
+
+    console.log('Starting playback with:', {
+      deviceId,
+      playbackRequest
+    });
+
+    const response = await axios.put(
+      `https://api.spotify.com/v1/me/player/play${deviceId ? `?device_id=${deviceId}` : ''}`,
+      playbackRequest,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in startPlayback:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to start playback',
+      details: error.response?.data || error.message 
+    });
+  }
+};
+
+exports.transferPlayback = async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    const accessToken = req.headers.authorization.split(' ')[1];
+
+    await axios.put('https://api.spotify.com/v1/me/player', 
+      {
+        device_ids: [deviceId],
+        play: false
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in transferPlayback:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: 'Failed to transfer playback',
+      details: error.response?.data || error.message 
+    });
+  }
+};

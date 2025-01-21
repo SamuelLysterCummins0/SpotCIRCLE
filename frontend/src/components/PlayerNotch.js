@@ -14,34 +14,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
     }
   }, [track]);
 
-  const extractColors = (imageUrl) => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    img.src = imageUrl;
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const colors = [];
-      
-      // Sample colors from different parts of the image
-      for (let i = 0; i < imageData.length; i += 4 * 1000) {
-        const r = imageData[i];
-        const g = imageData[i + 1];
-        const b = imageData[i + 2];
-        colors.push(`rgb(${r}, ${g}, ${b})`);
-      }
-      
-      // Take a few distinct colors
-      setDominantColors(colors.slice(0, 3));
-    };
-  };
-
   useEffect(() => {
     const handleGlobalScroll = (e) => {
       if (isExpanded && containerRef.current) {
@@ -76,6 +48,34 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
     setIsChangingTrack(true);
     await action();
     setTimeout(() => setIsChangingTrack(false), 500);
+  };
+
+  const extractColors = (imageUrl) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.src = imageUrl;
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const colors = [];
+      
+      // Sample colors from different parts of the image
+      for (let i = 0; i < imageData.length; i += 4 * 1000) {
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        colors.push(`rgb(${r}, ${g}, ${b})`);
+      }
+      
+      // Take a few distinct colors
+      setDominantColors(colors.slice(0, 3));
+    };
   };
 
   if (!track) return null;
@@ -160,6 +160,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
                 </p>
               </div>
             </div>
+
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => handleTrackChange(onPrevious)}

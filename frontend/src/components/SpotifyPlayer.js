@@ -49,18 +49,10 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
         if (isMounted) setError('Premium account required');
       });
 
-      player.addListener('playback_error', ({ message }) => {
-        console.error('Failed to perform playback:', message);
-        if (isMounted) setError('Playback error occurred');
-      });
+      player.addListener('playback_error', handlePlaybackError);
 
       // State management
-      player.addListener('player_state_changed', state => {
-        if (state && isMounted) {
-          setPlayerState(state);
-          onPlayPause && onPlayPause(!state.paused);
-        }
-      });
+      player.addListener('player_state_changed', handleStateChange);
 
       // Ready handling
       player.addListener('ready', ({ device_id }) => {
@@ -77,13 +69,12 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
         // Transfer playback to this device
         const transferPlayback = async () => {
           try {
-            await axios.put('https://api.spotify.com/v1/me/player', {
-              device_ids: [device_id],
-              play: false
+            const token = localStorage.getItem('spotify_access_token');
+            await axios.put(`${API_URL}/api/spotify/player`, {
+              deviceId: device_id
             }, {
               headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${token}`
               }
             });
             console.log('Successfully transferred playback to device:', device_id);
@@ -165,44 +156,68 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
     }
   };
 
+  // Handle player state changes
+  const handleStateChange = (state) => {
+    if (state) {
+      // Only log state changes that are meaningful
+      if (!playerState || 
+          state.paused !== playerState.paused ||
+          state.position !== playerState.position ||
+          state.track_window?.current_track?.uri !== playerState?.track_window?.current_track?.uri) {
+        console.log('Player State:', {
+          track: state.track_window.current_track.name,
+          artist: state.track_window.current_track.artists[0].name,
+          paused: state.paused,
+          position: state.position,
+          duration: state.duration
+        });
+      }
+      
+      // Only update if the state actually changed
+      if (!playerState || 
+          state.paused !== playerState.paused || 
+          state.track_window?.current_track?.uri !== playerState?.track_window?.current_track?.uri) {
+        setPlayerState(state);
+        onPlayPause && onPlayPause(!state.paused);
+      }
+    }
+  };
+
+  // Handle playback errors
+  const handlePlaybackError = ({ message }) => {
+    // Only log errors that aren't about no list being loaded
+    if (!message.includes('no list was loaded')) {
+      console.error('Failed to perform playback:', message);
+      setError('Playback error occurred');
+    }
+  };
+
   // Handle play/pause
   useEffect(() => {
-    if (!player || !isReady || !uri || !deviceId) return;
+    if (!player || !isReady || !deviceId) return;
 
     const handlePlayback = async () => {
       try {
+        // Get current state to check if we have a track loaded
+        const state = await player.getCurrentState();
+        if (!state && isPlayingProp) {
+          // No track loaded, don't try to resume
+          return;
+        }
+
         if (isPlayingProp) {
-          // First, ensure our device is the active one
-          await axios.put('https://api.spotify.com/v1/me/player', {
-            device_ids: [deviceId],
-            play: false
-          }, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-              'Content-Type': 'application/json'
-            }
+          const resumeSuccess = await player.resume().catch(e => {
+            console.error('Resume failed:', e);
+            return false;
           });
-
-          // Get current playback state
-          const state = await player.getCurrentState();
-          const isCurrentlyPlaying = !state?.paused;
-          const currentUri = state?.track_window?.current_track?.uri;
-
-          // Only send play request if track is different or not playing
-          if (currentUri !== uri || !isCurrentlyPlaying) {
-            await axios.put(`${API_URL}/api/spotify/player/play`, {
-              uris: [uri],
-              device_id: deviceId
-            }, {
+          
+          if (!resumeSuccess) {
+            console.log('Falling back to API call for resume');
+            await axios.put(`${API_URL}/api/spotify/player/play`, null, {
               headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
               }
             });
-
-            console.log('Playing track on device:', deviceId);
-            // Wait for track to load
-            await new Promise(resolve => setTimeout(resolve, 500));
           }
         } else {
           const pauseSuccess = await player.pause().catch(e => {
@@ -212,55 +227,56 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
           
           if (!pauseSuccess) {
             console.log('Falling back to API call for pause');
-            await axios.put(`${API_URL}/api/spotify/player/pause`, {
-              device_id: deviceId
-            }, {
+            await axios.put(`${API_URL}/api/spotify/player/pause`, null, {
               headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
               }
             });
           }
         }
       } catch (error) {
-        console.error('Error controlling playback:', error);
-        setError('Failed to control playback');
+        // Only log errors that aren't about no track being loaded
+        if (!error.message?.includes('no list was loaded')) {
+          console.error('Error controlling playback:', error);
+          setError('Failed to control playback');
+        }
       }
     };
 
     handlePlayback();
-  }, [isPlayingProp, player, isReady, deviceId, uri]);
+  }, [isPlayingProp, player, isReady, deviceId]);
 
   // Handle volume changes
   useEffect(() => {
     if (!player || !isReady) return;
     
-    const setPlayerVolume = async () => {
+    player.setVolume(volume / 100).catch(error => {
+      console.error('Error setting volume:', error);
+    });
+  }, [volume, player, isReady]);
+
+  // Ready handling
+  useEffect(() => {
+    if (!player || !isReady || !deviceId) return;
+
+    const transferPlayback = async () => {
       try {
-        const volumeSuccess = await player.setVolume(volume / 100).catch(e => {
-          console.error('Set volume failed:', e);
-          return false;
+        const token = localStorage.getItem('spotify_access_token');
+        await axios.put(`${API_URL}/api/spotify/player`, {
+          deviceId
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         });
-        
-        if (!volumeSuccess) {
-          console.log('Falling back to API call for volume');
-          await axios.put(`${API_URL}/api/spotify/player/volume`, {
-            device_id: deviceId,
-            volume_percent: volume
-          }, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-              'Content-Type': 'application/json'
-            }
-          });
-        }
+        console.log('Successfully transferred playback to device:', deviceId);
       } catch (error) {
-        console.error('Error setting volume:', error);
+        console.error('Error transferring playback:', error);
       }
     };
 
-    setPlayerVolume();
-  }, [volume, player, isReady, deviceId]);
+    transferPlayback();
+  }, [player, isReady, deviceId]);
 
   // Handle URI changes
   useEffect(() => {
@@ -288,29 +304,6 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
 
     playTrack();
   }, [selectedPlaylist, trackPosition, player, isReady]);
-
-  useEffect(() => {
-    if (!player || !isReady || !uri || !deviceId) return;
-
-    const transferPlayback = async () => {
-      try {
-        await axios.put(`${API_URL}/api/spotify/player`, {
-          device_ids: [deviceId],
-          play: true
-        }, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log('Playback transferred to device ID:', deviceId);
-      } catch (error) {
-        console.error('Error transferring playback:', error);
-      }
-    };
-
-    transferPlayback();
-  }, [player, isReady, deviceId, uri]);
 
   if (error) {
     return <div className="error-message">{error}</div>;

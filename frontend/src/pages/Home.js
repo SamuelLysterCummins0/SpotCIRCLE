@@ -184,30 +184,25 @@ const Home = () => {
   }, []);
 
   useEffect(() => {
-    const fetchPlaylistTracks = async () => {
+    const loadPlaylistTracks = async () => {
       if (!selectedPlaylist) return;
       
       try {
-        const response = await api.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('spotify_access_token')}`
-          }
-        });
-
-        const validTracks = (response.data || []).filter(track => 
-          track && 
-          typeof track === 'object' && 
-          track.duration_ms
+        const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`);
+        const tracks = response.data.filter(track => 
+          track.uri && 
+          !track.uri.includes('spotify:local') && 
+          track.uri.startsWith('spotify:track:')
         );
-        console.log(`Loaded ${validTracks.length} valid tracks from playlist`);
-        setPlaylistTracks(validTracks);
+        console.log(`Loaded ${tracks.length} valid tracks from playlist`);
+        setPlaylistTracks(tracks);
       } catch (error) {
-        console.error('Error fetching playlist tracks:', error.response || error);
+        console.error('Error loading playlist tracks:', error);
         setPlaylistTracks([]);
       }
     };
   
-    fetchPlaylistTracks();
+    loadPlaylistTracks();
   }, [selectedPlaylist]);
 
   useEffect(() => {
@@ -236,6 +231,11 @@ const Home = () => {
       }
     };
     getDevices();
+  }, []);
+
+  useEffect(() => {
+    axios.defaults.baseURL = 'http://localhost:5001';
+    axios.defaults.headers.common['Authorization'] = `Bearer ${localStorage.getItem('spotify_access_token')}`;
   }, []);
 
   const handleLogout = () => {
@@ -299,122 +299,83 @@ const Home = () => {
     }
   };
 
-  const handleTrackSelect = async (track) => {
-    console.log('Selected Playlist:', selectedPlaylist);
-    console.log('Playlist Tracks:', playlistTracks);
-    console.log('Selected Track:', track);
-    if (!selectedPlaylist) {
-      console.error('No playlist selected.');
-      return;
-    }
+  const handleTrackSelect = async (track, trackList = null) => {
+    console.log("Selected Track:", track);
+    
     try {
-      const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
-      console.log('Device ID:', webPlaybackDeviceId);
+      // If no trackList is provided, use topTracks
+      const currentTracks = trackList || topTracks;
       
-      if (!webPlaybackDeviceId) {
-        console.error('Web playback device not ready');
-        return;
+      // Find the index of the selected track
+      const startIndex = currentTracks.findIndex(t => t.id === track.id);
+      if (startIndex === -1) {
+        throw new Error("Selected track not found in track list");
+      }
+
+      // Create a queue starting from the selected track, filtering out local tracks
+      const trackQueue = [
+        ...currentTracks.slice(startIndex),
+        ...currentTracks.slice(0, startIndex)
+      ].filter(track => 
+        track.uri && 
+        !track.uri.includes('spotify:local') && 
+        track.uri.startsWith('spotify:track:')
+      );
+
+      if (trackQueue.length === 0) {
+        throw new Error("No playable tracks found in queue");
+      }
+
+      // Get track URIs
+      const trackUris = trackQueue.map(t => t.uri);
+
+      // Start playback with the track URIs
+      const deviceId = window.spotifyWebPlaybackDeviceId;
+      console.log("Using device ID:", deviceId);
+
+      if (!deviceId) {
+        throw new Error("No playback device found. Please refresh the page.");
       }
 
       // First transfer playback to our device
-      await axios.put('https://api.spotify.com/v1/me/player', {
-        device_ids: [webPlaybackDeviceId],
-        play: false
-      }, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-          'Content-Type': 'application/json'
-        }
+      await axios.put('/api/spotify/player', {
+        deviceId
       });
 
-      // Wait a bit for the transfer to take effect
+      // Wait a bit for the transfer to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Then start playback
-      const response = await axios.put(`${API_URL}/api/spotify/player/play`, {
-        context_uri: selectedPlaylist.uri,
-        offset: { position: playlistTracks.indexOf(track) },
-        device_id: webPlaybackDeviceId
-      }, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-          'Content-Type': 'application/json'
-        }
+      const response = await axios.put('/api/spotify/play', {
+        uris: trackUris,
+        deviceId
       });
-      console.log('API response:', response.data);
+
+      console.log("API response:", response.data);
+      
+      // Update the queue state
+      setQueue(trackQueue.slice(1)); // Exclude the currently playing track
+      setCurrentTrack(trackQueue[0]); // Use first playable track
+      setIsPlaying(true);
+
     } catch (error) {
-      console.error('Error playing track:', error);
+      console.error("Error playing track:", error);
+      // Show error to user
+      if (error.response?.data?.error) {
+        alert(`Error: ${error.response.data.error}`);
+      } else {
+        alert(`Error: ${error.message || 'Failed to play track'}`);
+      }
     }
   };
 
   const handlePlayPause = async () => {
     try {
-      // Get the web player device ID
-      const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
+      if (!currentTrack) return;
       
-      if (!webPlaybackDeviceId) {
-        console.error('Web playback device not ready');
-        return;
-      }
-
-      if (isPlaying) {
-        await axios.put(`${API_URL}/api/spotify/player/pause`, {
-          device_id: webPlaybackDeviceId
-        }, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } else if (currentTrack) {
-        await axios.put(`${API_URL}/api/spotify/player/play`, { 
-          uris: [currentTrack.uri],
-          device_id: webPlaybackDeviceId
-        }, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      }
       setIsPlaying(!isPlaying);
     } catch (error) {
-      console.error('Failed to toggle play/pause:', error);
-      if (error.response?.status === 401) {
-        try {
-          const response = await axios.get(`${API_URL}/api/auth/refresh`, { withCredentials: true });
-          if (response.data.access_token) {
-            localStorage.setItem('spotify_access_token', response.data.access_token);
-            // Try playing again
-            if (isPlaying) {
-              const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
-              await axios.put(`${API_URL}/api/spotify/player/pause`, {
-                device_id: webPlaybackDeviceId
-              }, {
-                headers: {
-                  'Authorization': `Bearer ${response.data.access_token}`,
-                  'Content-Type': 'application/json'
-                }
-              });
-            } else if (currentTrack) {
-              const webPlaybackDeviceId = window.spotifyWebPlaybackDeviceId;
-              await axios.put(`${API_URL}/api/spotify/player/play`, { 
-                uris: [currentTrack.uri],
-                device_id: webPlaybackDeviceId
-              }, {
-                headers: {
-                  'Authorization': `Bearer ${response.data.access_token}`,
-                  'Content-Type': 'application/json'
-                }
-              });
-            }
-            setIsPlaying(!isPlaying);
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing token:', refreshError);
-          navigate('/login');
-        }
-      }
+      console.error("Error toggling playback:", error);
     }
   };
 
@@ -423,7 +384,7 @@ const Home = () => {
     const currentIndex = topTracks.findIndex(t => t.id === currentTrack.id);
     const nextTrack = topTracks[currentIndex + 1];
     if (nextTrack) {
-      handleTrackSelect(nextTrack);
+      handleTrackSelect(nextTrack, topTracks);
     }
   };
 
@@ -432,7 +393,7 @@ const Home = () => {
     const currentIndex = topTracks.findIndex(t => t.id === currentTrack.id);
     const prevTrack = topTracks[currentIndex - 1];
     if (prevTrack) {
-      handleTrackSelect(prevTrack);
+      handleTrackSelect(prevTrack, topTracks);
     }
   };
 
@@ -533,7 +494,7 @@ const Home = () => {
             <TrackItem 
               key={`${track.id}-${index}`}
               track={track}
-              onClick={() => handleTrackSelect(track)}
+              onClick={() => handleTrackSelect(track, playlistTracks)}
               isPlaying={isPlaying && currentTrack?.id === track.id}
               index={index + 1}
             />
@@ -639,7 +600,7 @@ const Home = () => {
               <MainPageTrackItem
                 track={track}
                 index={index + 1}
-                onClick={() => handleTrackSelect(track)}
+                onClick={() => handleTrackSelect(track, tracks)}
               />
             </div>
           ))}
@@ -666,7 +627,7 @@ const Home = () => {
                 <MainPageTrackItem
                   track={track}
                   index={index + 8}
-                  onClick={() => handleTrackSelect(track)}
+                  onClick={() => handleTrackSelect(track, tracks)}
                 />
               </motion.div>
             ))}
