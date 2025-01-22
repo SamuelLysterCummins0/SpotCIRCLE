@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
@@ -16,28 +16,37 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     }
   }, [track]);
 
-  // Fetch queue when track changes
-  useEffect(() => {
-    const fetchQueue = async () => {
-      try {
-        const response = await axios.get('http://localhost:5001/api/spotify/player/current', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-          }
-        });
-
-        if (response.data?.queue) {
-          setQueueTracks(response.data.queue);
-        }
-      } catch (error) {
-        console.warn('Failed to fetch queue:', error);
+  const fetchQueue = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/spotify/player/state');
+      if (response.data?.queue) {
+        setQueueTracks(response.data.queue);
       }
-    };
+    } catch (error) {
+      console.debug('Queue fetch attempt failed:', error);
+    }
+  }, []);
 
+  useEffect(() => {
     if (track) {
       fetchQueue();
+      const pollInterval = setInterval(fetchQueue, 2000); 
+      return () => clearInterval(pollInterval);
     }
-  }, [track]);
+  }, [track, fetchQueue]);
+
+  useEffect(() => {
+    if (track) {
+      const timeoutId = setTimeout(fetchQueue, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isPlaying, fetchQueue]);
+
+  useEffect(() => {
+    if (isExpanded && track) {
+      fetchQueue();
+    }
+  }, [isExpanded, fetchQueue]);
 
   useEffect(() => {
     const handleGlobalScroll = (e) => {
@@ -74,7 +83,10 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const handleTrackChange = async (action) => {
     setIsChangingTrack(true);
     await action();
-    setTimeout(() => setIsChangingTrack(false), 500);
+    setTimeout(() => {
+      setIsChangingTrack(false);
+      fetchQueue();
+    }, 1000);
   };
 
   const extractColors = (imageUrl) => {
@@ -107,9 +119,12 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
 
   const handleWheel = (e) => {
     if (!isExpanded) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
     const newPosition = Math.min(
       Math.max(scrollPosition + e.deltaY * 0.5, 0),
-      200
+      200 
     );
     setScrollPosition(newPosition);
   };

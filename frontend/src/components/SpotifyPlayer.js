@@ -49,28 +49,35 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
       clearTimeout(stateTimeoutRef.current);
     }
 
-    // Set a new timeout
-    stateTimeoutRef.current = setTimeout(() => {
-      const lastState = lastStateRef.current;
+    const lastState = lastStateRef.current;
 
-      if (isSignificantStateChange(lastState, state)) {
-        // Only log state changes that affect the user experience
-        if (lastState?.track_window?.current_track?.uri !== state.track_window.current_track.uri ||
-            lastState?.paused !== state.paused) {
-          console.log('Player State:', {
-            track: state.track_window.current_track.name,
-            artist: state.track_window.current_track.artists[0].name,
-            paused: state.paused,
-            position: state.position,
-            duration: state.duration
-          });
+    // Check if this is a significant state change
+    if (isSignificantStateChange(lastState, state)) {
+      // Update the last state immediately to prevent duplicate processing
+      lastStateRef.current = state;
+
+      // Set a new timeout for UI updates
+      stateTimeoutRef.current = setTimeout(() => {
+        // Only update UI and log if the state is still current
+        if (lastStateRef.current === state) {
+          // Only log track changes or play/pause changes
+          if (!lastState || 
+              lastState?.track_window?.current_track?.uri !== state.track_window.current_track.uri ||
+              lastState?.paused !== state.paused) {
+            console.log('Player State:', {
+              track: state.track_window.current_track.name,
+              artist: state.track_window.current_track.artists[0].name,
+              paused: state.paused,
+              position: state.position,
+              duration: state.duration
+            });
+          }
+
+          setPlayerState(state);
+          onPlayPause && onPlayPause(!state.paused);
         }
-
-        setPlayerState(state);
-        onPlayPause && onPlayPause(!state.paused);
-        lastStateRef.current = state;
-      }
-    }, 50); // Reduced debounce time for faster response
+      }, 16); // Use requestAnimationFrame timing (~16ms) for smoother updates
+    }
   }, [onPlayPause]);
 
   // Handle playback errors

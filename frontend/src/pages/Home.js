@@ -303,21 +303,55 @@ const Home = () => {
     console.log("Selected Track:", track);
     
     try {
-      // If no trackList is provided, use topTracks
+      const deviceId = window.spotifyWebPlaybackDeviceId;
+      console.log("Using device ID:", deviceId);
+
+      if (!deviceId) {
+        throw new Error("No playback device found. Please refresh the page.");
+      }
+
+      // Check if we're playing from a playlist and have valid playlist data
+      if (selectedPlaylist?.uri && selectedPlaylist?.tracks?.items) {
+        console.log("Attempting to play from playlist:", selectedPlaylist.uri);
+        
+        // Find the track index in the playlist
+        const trackIndex = selectedPlaylist.tracks.items.findIndex(item => 
+          item.track && item.track.id === track.id
+        );
+        
+        console.log("Track index in playlist:", trackIndex);
+        
+        if (trackIndex !== -1) {
+          // Play using playlist context
+          const response = await axios.put('/api/spotify/play', {
+            context_uri: selectedPlaylist.uri,
+            offset: { position: trackIndex },
+            deviceId
+          });
+          console.log("API response:", response.data);
+          setCurrentTrack(track);
+          setIsPlaying(true);
+          return;
+        }
+      }
+
+      // If not playing from playlist or track not found in playlist, fallback to track URI
       const currentTracks = trackList || topTracks;
-      
-      // Find the index of the selected track
-      const startIndex = currentTracks.findIndex(t => t.id === track.id);
+      if (!currentTracks || !Array.isArray(currentTracks)) {
+        throw new Error("No valid track list available");
+      }
+
+      const startIndex = currentTracks.findIndex(t => t && t.id === track.id);
       if (startIndex === -1) {
         throw new Error("Selected track not found in track list");
       }
 
-      // Create a queue starting from the selected track, filtering out local tracks
+      // Create a queue starting from the selected track
       const trackQueue = [
         ...currentTracks.slice(startIndex),
         ...currentTracks.slice(0, startIndex)
       ].filter(track => 
-        track.uri && 
+        track && track.uri && 
         !track.uri.includes('spotify:local') && 
         track.uri.startsWith('spotify:track:')
       );
@@ -329,26 +363,16 @@ const Home = () => {
       // Get track URIs
       const trackUris = trackQueue.map(t => t.uri);
 
-      // Get device ID
-      const deviceId = window.spotifyWebPlaybackDeviceId;
-      console.log("Using device ID:", deviceId);
-
-      if (!deviceId) {
-        throw new Error("No playback device found. Please refresh the page.");
-      }
-
-      // Start playback immediately with the track URIs
+      // Start playback with track URIs
       const response = await axios.put('/api/spotify/play', {
         uris: trackUris,
         deviceId,
-        position_ms: 0 // Start from beginning
+        position_ms: 0
       });
 
       console.log("API response:", response.data);
-      
-      // Update the queue state
-      setQueue(trackQueue.slice(1)); // Exclude the currently playing track
-      setCurrentTrack(trackQueue[0]); // Use first playable track
+      setQueue(trackQueue.slice(1));
+      setCurrentTrack(trackQueue[0]);
       setIsPlaying(true);
 
     } catch (error) {
@@ -371,21 +395,95 @@ const Home = () => {
     }
   };
 
-  const handleNext = () => {
-    if (!currentTrack || !topTracks.length) return;
-    const currentIndex = topTracks.findIndex(t => t.id === currentTrack.id);
-    const nextTrack = topTracks[currentIndex + 1];
-    if (nextTrack) {
-      handleTrackSelect(nextTrack, topTracks);
+  const updatePlayerState = async () => {
+    try {
+      const response = await axios.get('/api/spotify/player/current', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+        }
+      });
+
+      if (response.data?.item) {
+        setCurrentTrack(response.data.item);
+        if (response.data.queue) {
+          setQueue(response.data.queue);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating player state:', error);
     }
   };
 
-  const handlePrevious = () => {
-    if (!currentTrack || !topTracks.length) return;
-    const currentIndex = topTracks.findIndex(t => t.id === currentTrack.id);
-    const prevTrack = topTracks[currentIndex - 1];
-    if (prevTrack) {
-      handleTrackSelect(prevTrack, topTracks);
+  const handleNext = async () => {
+    try {
+      // Get the next track from the queue first
+      let nextTrack = null;
+      if (selectedPlaylist?.tracks?.items) {
+        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => item.track.id === currentTrack.id);
+        if (currentIndex !== -1 && currentIndex < selectedPlaylist.tracks.items.length - 1) {
+          nextTrack = selectedPlaylist.tracks.items[currentIndex + 1].track;
+        } else if (currentIndex !== -1) {
+          // Loop back to the beginning
+          nextTrack = selectedPlaylist.tracks.items[0].track;
+        }
+      } else if (queue.length > 0) {
+        nextTrack = queue[0];
+      }
+
+      // Update UI immediately if we know the next track
+      if (nextTrack) {
+        setCurrentTrack(nextTrack);
+        setQueue(prevQueue => prevQueue.slice(1));
+      }
+
+      // Send the next command to Spotify
+      await axios.post('/api/spotify/player/next', {}, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+        }
+      });
+
+      // Update the state after a very short delay
+      setTimeout(updatePlayerState, 100);
+    } catch (error) {
+      console.error('Error skipping to next track:', error);
+      // Revert to actual state if there was an error
+      updatePlayerState();
+    }
+  };
+
+  const handlePrevious = async () => {
+    try {
+      // Get the previous track if possible
+      let prevTrack = null;
+      if (selectedPlaylist?.tracks?.items) {
+        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => item.track.id === currentTrack.id);
+        if (currentIndex > 0) {
+          prevTrack = selectedPlaylist.tracks.items[currentIndex - 1].track;
+        } else if (currentIndex === 0) {
+          // Loop to the end
+          prevTrack = selectedPlaylist.tracks.items[selectedPlaylist.tracks.items.length - 1].track;
+        }
+      }
+
+      // Update UI immediately if we know the previous track
+      if (prevTrack) {
+        setCurrentTrack(prevTrack);
+      }
+
+      // Send the previous command to Spotify
+      await axios.post('/api/spotify/player/previous', {}, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+        }
+      });
+
+      // Update the state after a very short delay
+      setTimeout(updatePlayerState, 100);
+    } catch (error) {
+      console.error('Error going to previous track:', error);
+      // Revert to actual state if there was an error
+      updatePlayerState();
     }
   };
 
