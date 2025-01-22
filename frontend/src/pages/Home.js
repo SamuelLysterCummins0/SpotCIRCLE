@@ -1,10 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { 
+  useState, 
+  useEffect, 
+  useCallback, 
+  useMemo, 
+  useRef 
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import PlayerNotch from '../components/PlayerNotch';
 import SpotifyPlayer from '../components/SpotifyPlayer';
 import axios from 'axios';
 import api from '../utils/api';
+import toast, { Toaster } from 'react-hot-toast';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -402,11 +409,158 @@ const Home = () => {
         deviceId
       });
 
-      // Show success feedback through UI animation
-      // Animation will be handled by Framer Motion in the component
+      // Show success toast notification
+      toast.custom((t) => (
+        <motion.div
+          initial={{ y: 100, opacity: 0, scale: 0.6 }}
+          animate={{ 
+            y: 0, 
+            opacity: 1, 
+            scale: 1,
+            transition: { 
+              type: "spring",
+              stiffness: 200,
+              damping: 20
+            }
+          }}
+          exit={{ 
+            y: 100, 
+            opacity: 0, 
+            scale: 0.6,
+            transition: {
+              type: "spring",
+              stiffness: 500,
+              damping: 30,
+              mass: 1
+            }
+          }}
+          className={`${
+            t.visible ? 'animate-enter' : 'animate-leave'
+          } max-w-md w-full bg-gradient-to-r from-purple-900/90 to-purple-600/90 backdrop-blur-lg shadow-lg rounded-lg pointer-events-auto flex ring-1 ring-black ring-opacity-5 transform-gpu`}
+        >
+          <div className="flex-1 w-0 p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 pt-0.5">
+                <motion.img
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ 
+                    scale: 1, 
+                    opacity: 1,
+                    transition: {
+                      delay: 0.1,
+                      duration: 0.2
+                    }
+                  }}
+                  exit={{ 
+                    scale: 0.8, 
+                    opacity: 0,
+                    transition: {
+                      duration: 0.15
+                    }
+                  }}
+                  className="h-10 w-10 rounded-lg"
+                  src={track.album?.images[0]?.url}
+                  alt=""
+                />
+              </div>
+              <div className="ml-3 flex-1">
+                <motion.p 
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ 
+                    x: 0, 
+                    opacity: 1,
+                    transition: {
+                      delay: 0.15,
+                      duration: 0.3
+                    }
+                  }}
+                  exit={{ 
+                    x: -20, 
+                    opacity: 0,
+                    transition: {
+                      duration: 0.2
+                    }
+                  }}
+                  className="text-sm font-medium text-white"
+                >
+                  {track.name}
+                </motion.p>
+                <motion.p 
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ 
+                    x: 0, 
+                    opacity: 1,
+                    transition: {
+                      delay: 0.2,
+                      duration: 0.3
+                    }
+                  }}
+                  exit={{ 
+                    x: -20, 
+                    opacity: 0,
+                    transition: {
+                      duration: 0.15
+                    }
+                  }}
+                  className="mt-1 text-sm text-purple-200"
+                >
+                  Added to queue
+                </motion.p>
+              </div>
+            </div>
+          </div>
+          <div className="flex">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => toast.dismiss(t.id)}
+              className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-purple-300 hover:text-purple-200 focus:outline-none"
+            >
+              <motion.svg 
+                initial={{ rotate: -90, opacity: 0 }}
+                animate={{ 
+                  rotate: 0, 
+                  opacity: 1,
+                  transition: {
+                    delay: 0.25,
+                    duration: 0.3,
+                    type: "spring",
+                    stiffness: 300
+                  }
+                }}
+                exit={{ 
+                  rotate: 90, 
+                  opacity: 0,
+                  transition: {
+                    duration: 0.2
+                  }
+                }}
+                className="h-5 w-5" 
+                viewBox="0 0 20 20" 
+                fill="currentColor"
+              >
+                <path 
+                  fillRule="evenodd" 
+                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" 
+                  clipRule="evenodd" 
+                />
+              </motion.svg>
+            </motion.button>
+          </div>
+        </motion.div>
+      ), {
+        duration: 2000,
+        position: 'bottom-center',
+      });
+
     } catch (error) {
       console.error("Error adding to queue:", error);
-      alert(`Error: ${error.response?.data?.error || 'Failed to add track to queue'}`);
+      toast.error(`Failed to add track to queue: ${error.response?.data?.error || 'Unknown error'}`, {
+        style: {
+          background: '#4B0082',
+          color: '#fff',
+        },
+      });
     }
   };
 
@@ -417,6 +571,107 @@ const Home = () => {
       setIsPlaying(!isPlaying);
     } catch (error) {
       console.error("Error toggling playback:", error);
+    }
+  };
+
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  };
+
+  const debouncedUpdateState = useCallback(
+    debounce(async () => {
+      try {
+        const [currentResponse, queueResponse] = await Promise.all([
+          axios.get('/api/spotify/player/current', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+            }
+          }),
+          axios.get('/api/spotify/player/state', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+            }
+          })
+        ]);
+
+        if (currentResponse.data?.item) {
+          // Batch state updates together
+          const updates = {
+            currentTrack: currentResponse.data.item,
+            queue: queueResponse.data?.queue || []
+          };
+          
+          // Update both states at once to prevent multiple re-renders
+          setCurrentTrack(updates.currentTrack);
+          setQueue(updates.queue);
+        }
+      } catch (error) {
+        console.debug('State update failed:', error);
+      }
+    }, 200), // Reduced from 300ms to 200ms
+    []
+  );
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    // Initial update
+    debouncedUpdateState();
+
+    // Update every 1.5 seconds while playing (reduced from 2s)
+    const interval = setInterval(debouncedUpdateState, 1500);
+    return () => {
+      clearInterval(interval);
+      debouncedUpdateState.cancel?.();
+    };
+  }, [isPlaying, debouncedUpdateState]);
+
+  const handleNext = async () => {
+    try {
+      // Optimistically update UI state
+      const nextTrack = queue[0];
+      if (nextTrack) {
+        setCurrentTrack(nextTrack);
+        setQueue(prevQueue => prevQueue.slice(1));
+      }
+
+      await axios.post('/api/spotify/player/next', {}, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+        }
+      });
+
+      // Small delay before getting actual state
+      await new Promise(resolve => setTimeout(resolve, 50)); // Reduced from 100ms to 50ms
+      await debouncedUpdateState();
+    } catch (error) {
+      console.error('Error skipping to next track:', error);
+      debouncedUpdateState();
+    }
+  };
+
+  const handlePrevious = async () => {
+    try {
+      await axios.post('/api/spotify/player/previous', {}, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+        }
+      });
+
+      // Small delay before getting actual state
+      await new Promise(resolve => setTimeout(resolve, 50)); // Reduced from 100ms to 50ms
+      await debouncedUpdateState();
+    } catch (error) {
+      console.error('Error going to previous track:', error);
+      debouncedUpdateState();
     }
   };
 
@@ -436,120 +691,6 @@ const Home = () => {
       }
     } catch (error) {
       console.error('Error updating player state:', error);
-    }
-  };
-
-  const handleNext = async () => {
-    try {
-      // Get the next track from the queue first
-      let nextTrack = null;
-      if (selectedPlaylist?.tracks?.items) {
-        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => 
-          item.track && item.track.id === currentTrack?.id
-        );
-        if (currentIndex !== -1 && currentIndex < selectedPlaylist.tracks.items.length - 1) {
-          nextTrack = selectedPlaylist.tracks.items[currentIndex + 1].track;
-        } else if (currentIndex !== -1) {
-          // Loop back to the beginning
-          nextTrack = selectedPlaylist.tracks.items[0].track;
-        }
-      } else if (queue.length > 0) {
-        nextTrack = queue[0];
-      }
-
-      // Update UI immediately with predicted state
-      if (nextTrack) {
-        setCurrentTrack(nextTrack);
-        setQueue(prevQueue => prevQueue.slice(1));
-      }
-
-      // Send the next command to Spotify
-      await axios.post('/api/spotify/player/next', {}, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-        }
-      });
-
-      // Verify state after a short delay
-      setTimeout(async () => {
-        try {
-          const response = await axios.get('/api/spotify/player/current', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-            }
-          });
-
-          if (response.data?.item) {
-            // Only update if different from our prediction
-            if (!nextTrack || nextTrack.id !== response.data.item.id) {
-              setCurrentTrack(response.data.item);
-            }
-            if (response.data.queue) {
-              setQueue(response.data.queue);
-            }
-          }
-        } catch (error) {
-          console.error('Error verifying track state:', error);
-        }
-      }, 300);
-    } catch (error) {
-      console.error('Error skipping to next track:', error);
-      updatePlayerState();
-    }
-  };
-
-  const handlePrevious = async () => {
-    try {
-      // Try to predict previous track
-      let prevTrack = null;
-      if (selectedPlaylist?.tracks?.items) {
-        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => 
-          item.track && item.track.id === currentTrack?.id
-        );
-        if (currentIndex > 0) {
-          prevTrack = selectedPlaylist.tracks.items[currentIndex - 1].track;
-        } else if (currentIndex === 0) {
-          prevTrack = selectedPlaylist.tracks.items[selectedPlaylist.tracks.items.length - 1].track;
-        }
-      }
-
-      // Update UI immediately with predicted state
-      if (prevTrack) {
-        setCurrentTrack(prevTrack);
-      }
-
-      // Send the previous command to Spotify
-      await axios.post('/api/spotify/player/previous', {}, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-        }
-      });
-
-      // Verify state after a short delay
-      setTimeout(async () => {
-        try {
-          const response = await axios.get('/api/spotify/player/current', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-            }
-          });
-
-          if (response.data?.item) {
-            // Only update if different from our prediction
-            if (!prevTrack || prevTrack.id !== response.data.item.id) {
-              setCurrentTrack(response.data.item);
-            }
-            if (response.data.queue) {
-              setQueue(response.data.queue);
-            }
-          }
-        } catch (error) {
-          console.error('Error verifying track state:', error);
-        }
-      }, 300);
-    } catch (error) {
-      console.error('Error going to previous track:', error);
-      updatePlayerState();
     }
   };
 
@@ -989,7 +1130,6 @@ const Home = () => {
     const handleQueueClick = (e) => {
       setIsQueueAnimating(true);
       handleAddToQueue(track, e);
-      // Reset animation state after animation completes
       setTimeout(() => setIsQueueAnimating(false), 1000);
     };
 
@@ -1019,28 +1159,45 @@ const Home = () => {
           <motion.button
             onClick={handleQueueClick}
             className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 hover:text-purple-300 
-                     transition-colors group relative"
+                     transition-colors group relative overflow-hidden"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             animate={isQueueAnimating ? {
               scale: [1, 1.2, 0.9, 1.1, 1],
-              rotate: [0, 20, -20, 10, 0],
+              rotate: [0, 15, -15, 5, 0],
             } : {}}
             transition={{
               duration: 0.6,
-              ease: "easeInOut",
+              ease: [0.76, 0, 0.24, 1],
             }}
           >
             <motion.div
-              className="absolute inset-0 bg-purple-400/20 rounded-full"
+              className="absolute inset-0 bg-purple-400/20"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={isQueueAnimating ? {
+                scale: [1, 3],
+                opacity: [0.5, 0],
+              } : {}}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              style={{
+                borderRadius: "100%",
+                transformOrigin: "center",
+              }}
+            />
+            <motion.div
+              className="absolute inset-0 bg-purple-400/10"
               initial={{ scale: 0, opacity: 0 }}
               animate={isQueueAnimating ? {
                 scale: [1, 2],
-                opacity: [0.5, 0],
+                opacity: [0.3, 0],
               } : {}}
-              transition={{ duration: 0.6 }}
+              transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
+              style={{
+                borderRadius: "100%",
+                transformOrigin: "center",
+              }}
             />
-            <svg
+            <motion.svg
               xmlns="http://www.w3.org/2000/svg"
               width="20"
               height="20"
@@ -1050,11 +1207,19 @@ const Home = () => {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="transform group-hover:translate-x-0.5 transition-transform"
+              className="transform group-hover:translate-x-0.5 transition-transform relative z-10"
+              animate={isQueueAnimating ? {
+                scale: [1, 1.2, 1],
+                rotate: [0, 180, 180],
+              } : {}}
+              transition={{
+                duration: 0.4,
+                ease: "easeOut",
+              }}
             >
               <path d="M5 12h14" />
               <path d="M12 5v14" />
-            </svg>
+            </motion.svg>
           </motion.button>
         </div>
       </div>
@@ -1116,7 +1281,8 @@ const Home = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-[#1E1E1E] to-[#121212] text-white pb-24">
+      <Toaster />
       {/* Background */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden bg-black">
         {/* Base dark layer */}

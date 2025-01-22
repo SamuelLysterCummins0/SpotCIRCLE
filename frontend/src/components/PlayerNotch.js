@@ -10,6 +10,35 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [queueTracks, setQueueTracks] = useState([]);
   const containerRef = useRef(null);
 
+  // Add debounce utility
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  };
+
+  const debouncedUpdateQueue = useCallback(
+    debounce(async () => {
+      if (!isExpanded) return;
+      
+      try {
+        const response = await axios.get('/api/spotify/player/state');
+        if (response.data?.queue) {
+          setQueueTracks(response.data.queue);
+        }
+      } catch (error) {
+        console.debug('Queue update failed:', error);
+      }
+    }, 300),
+    [isExpanded]
+  );
+
   const fetchQueue = useCallback(async () => {
     try {
       const response = await axios.get('/api/spotify/player/state');
@@ -31,11 +60,16 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   useEffect(() => {
     if (!track || !isExpanded) return;
 
-    fetchQueue();
-    
-    const pollInterval = setInterval(fetchQueue, 2000);
-    return () => clearInterval(pollInterval);
-  }, [track, isExpanded, fetchQueue]);
+    // Initial update
+    debouncedUpdateQueue();
+
+    // Update every 2 seconds when expanded
+    const interval = setInterval(debouncedUpdateQueue, 2000);
+    return () => {
+      clearInterval(interval);
+      debouncedUpdateQueue.cancel?.();
+    };
+  }, [track, isExpanded, debouncedUpdateQueue]);
 
   useEffect(() => {
     if (track && isPlaying) {
@@ -49,35 +83,18 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     
     setIsChangingTrack(true);
     try {
+      // Optimistically update the queue UI
+      setQueueTracks(prevTracks => prevTracks.slice(1));
+      
       await action();
       
-      if (isExpanded) {
-        setTimeout(async () => {
-          try {
-            const response = await axios.get('/api/spotify/player/current', {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-              }
-            });
-
-            if (response.data?.queue) {
-              setQueueTracks(prevTracks => {
-                const newTracks = response.data.queue;
-                if (prevTracks.length !== newTracks.length || 
-                    JSON.stringify(prevTracks) !== JSON.stringify(newTracks)) {
-                  return newTracks;
-                }
-                return prevTracks;
-              });
-            }
-          } catch (error) {
-            console.error('Error updating queue:', error);
-          }
-          setIsChangingTrack(false);
-        }, 300);
-      } else {
+      // Shorter delay before getting actual state
+      await new Promise(resolve => setTimeout(resolve, 25));
+      await debouncedUpdateQueue();
+      
+      setTimeout(() => {
         setIsChangingTrack(false);
-      }
+      }, 100); // Reduced from 200ms to 100ms
     } catch (error) {
       console.error('Track change failed:', error);
       setIsChangingTrack(false);
@@ -327,7 +344,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       <div className="space-y-2">
                         {queueTracks.slice(0, 5).map((queueTrack, index) => (
                           <div 
-                            key={queueTrack.id || index} 
+                            key={`${queueTrack.id}-${index}`}
                             className="flex items-center gap-2 p-2 rounded-lg hover:bg-purple-500/5 transition-colors"
                           >
                             <div className="w-8 h-8 rounded shadow-sm overflow-hidden">
