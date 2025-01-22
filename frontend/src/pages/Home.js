@@ -12,6 +12,7 @@ import SpotifyPlayer from '../components/SpotifyPlayer';
 import axios from 'axios';
 import api from '../utils/api';
 import toast, { Toaster } from 'react-hot-toast';
+import { usePlayerContext } from '../contexts/PlayerContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -589,35 +590,26 @@ const Home = () => {
   const debouncedUpdateState = useCallback(
     debounce(async () => {
       try {
-        const [currentResponse, queueResponse] = await Promise.all([
-          axios.get('/api/spotify/player/current', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-            }
-          }),
-          axios.get('/api/spotify/player/state', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-            }
-          })
-        ]);
-
-        if (currentResponse.data?.item) {
-          // Batch state updates together
-          const updates = {
-            currentTrack: currentResponse.data.item,
-            queue: queueResponse.data?.queue || []
-          };
-          
-          // Update both states at once to prevent multiple re-renders
-          setCurrentTrack(updates.currentTrack);
-          setQueue(updates.queue);
+        const response = await axios.get('/api/spotify/player/state');
+        if (response.data?.item && response.data.item.id !== currentTrack?.id) {
+          setCurrentTrack(response.data.item);
+          if (response.data?.queue) {
+            setQueue(prevQueue => {
+              // Only update if queue has actually changed
+              const newQueue = response.data.queue;
+              if (prevQueue.length !== newQueue.length || 
+                  JSON.stringify(prevQueue) !== JSON.stringify(newQueue)) {
+                return newQueue;
+              }
+              return prevQueue;
+            });
+          }
         }
       } catch (error) {
         console.debug('State update failed:', error);
       }
-    }, 200), // Reduced from 300ms to 200ms
-    []
+    }, 300),
+    [currentTrack]
   );
 
   useEffect(() => {
@@ -626,8 +618,8 @@ const Home = () => {
     // Initial update
     debouncedUpdateState();
 
-    // Update every 1.5 seconds while playing (reduced from 2s)
-    const interval = setInterval(debouncedUpdateState, 1500);
+    // Update every 2 seconds while playing
+    const interval = setInterval(debouncedUpdateState, 2000);
     return () => {
       clearInterval(interval);
       debouncedUpdateState.cancel?.();
@@ -1261,9 +1253,6 @@ const Home = () => {
         <h3 className="font-medium truncate">{index}. {track.name}</h3>
         <p className="text-sm text-gray-400 truncate">
           {track.artists.map(a => a.name).join(', ')}
-        </p>
-        <p className="text-xs text-gray-500 mt-1">
-          {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
         </p>
       </div>
     </div>

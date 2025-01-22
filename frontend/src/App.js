@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { PlayerProvider } from './contexts/PlayerContext';
 
 // Import pages
 import Home from './pages/Home';
@@ -17,27 +18,29 @@ const ProtectedRoute = ({ children }) => {
 
 function App() {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white"
-    >
-      <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/callback" element={<Login />} />
-        <Route 
-          path="/home" 
-          element={
-            <ProtectedRoute>
-              <Home />
-            </ProtectedRoute>
-          } 
-        />
-        {/* Catch all other routes and redirect to home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </motion.div>
+    <PlayerProvider>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="min-h-screen bg-gradient-to-b from-purple-900 to-black text-white"
+      >
+        <Routes>
+          <Route path="/" element={<Login />} />
+          <Route path="/callback" element={<Login />} />
+          <Route 
+            path="/home" 
+            element={
+              <ProtectedRoute>
+                <Home />
+              </ProtectedRoute>
+            } 
+          />
+          {/* Catch all other routes and redirect to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </motion.div>
+    </PlayerProvider>
   );
 }
 

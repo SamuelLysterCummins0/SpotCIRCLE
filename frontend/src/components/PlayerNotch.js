@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
+import { usePlayerContext } from '../contexts/PlayerContext';
 
 const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -53,89 +54,31 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
         });
       }
     } catch (error) {
-      console.debug('Queue fetch attempt failed:', error);
+      console.debug('Queue fetch failed:', error);
     }
   }, []);
 
   useEffect(() => {
-    if (!track || !isExpanded) return;
-
-    // Initial update
-    debouncedUpdateQueue();
-
-    // Update every 2 seconds when expanded
-    const interval = setInterval(debouncedUpdateQueue, 2000);
-    return () => {
-      clearInterval(interval);
-      debouncedUpdateQueue.cancel?.();
-    };
-  }, [track, isExpanded, debouncedUpdateQueue]);
+    if (isExpanded) {
+      fetchQueue();
+    }
+  }, [isExpanded, fetchQueue]);
 
   useEffect(() => {
-    if (track && isPlaying) {
-      const timeoutId = setTimeout(fetchQueue, 500);
-      return () => clearTimeout(timeoutId);
+    if (isPlaying && track) {
+      debouncedUpdateQueue();
     }
-  }, [isPlaying, track, fetchQueue]);
+  }, [isPlaying, track, debouncedUpdateQueue]);
 
   const handleTrackChange = async (action) => {
     if (isChangingTrack) return;
-    
     setIsChangingTrack(true);
-    try {
-      // Optimistically update the queue UI
-      setQueueTracks(prevTracks => prevTracks.slice(1));
-      
-      await action();
-      
-      // Shorter delay before getting actual state
-      await new Promise(resolve => setTimeout(resolve, 25));
-      await debouncedUpdateQueue();
-      
-      setTimeout(() => {
-        setIsChangingTrack(false);
-      }, 100); // Reduced from 200ms to 100ms
-    } catch (error) {
-      console.error('Track change failed:', error);
-      setIsChangingTrack(false);
-    }
+    await action();
+    setTimeout(() => setIsChangingTrack(false), 500);
   };
 
-  const extractColors = useCallback((imageUrl) => {
-    if (!imageUrl) return;
-    
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = Math.min(img.width, 100);  
-      canvas.height = Math.min(img.height, 100);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const colors = [];
-      
-      const step = Math.max(4 * 100, Math.floor(imageData.length / 50));
-      for (let i = 0; i < imageData.length; i += step) {
-        const r = imageData[i];
-        const g = imageData[i + 1];
-        const b = imageData[i + 2];
-        colors.push(`rgb(${r}, ${g}, ${b})`);
-      }
-      
-      setDominantColors(colors.slice(0, 2));
-    };
-    
-    img.src = imageUrl;
-  }, []);
-
-  useEffect(() => {
-    if (track?.album?.images[0]?.url) {
-      extractColors(track.album.images[0].url);
-    }
-  }, [track, extractColors]);
+  const handleNext = () => handleTrackChange(onNext);
+  const handlePrevious = () => handleTrackChange(onPrevious);
 
   useEffect(() => {
     const handleGlobalScroll = (e) => {
@@ -180,6 +123,42 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     );
     setScrollPosition(newPosition);
   };
+
+  const extractColors = useCallback((imageUrl) => {
+    if (!imageUrl) return;
+    
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = Math.min(img.width, 100);  
+      canvas.height = Math.min(img.height, 100);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const colors = [];
+      
+      const step = Math.max(4 * 100, Math.floor(imageData.length / 50));
+      for (let i = 0; i < imageData.length; i += step) {
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        colors.push(`rgb(${r}, ${g}, ${b})`);
+      }
+      
+      setDominantColors(colors.slice(0, 2));
+    };
+    
+    img.src = imageUrl;
+  }, []);
+
+  useEffect(() => {
+    if (track?.album?.images[0]?.url) {
+      extractColors(track.album.images[0].url);
+    }
+  }, [track, extractColors]);
 
   const discVariants = {
     normal: { 
@@ -242,7 +221,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
 
             <div className="flex items-center gap-3">
               <button 
-                onClick={() => handleTrackChange(onPrevious)}
+                onClick={handlePrevious}
                 className="p-2 hover:bg-purple-500/10 rounded-full transition-colors text-purple-400 hover:text-purple-300"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -264,7 +243,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                 )}
               </button>
               <button 
-                onClick={() => handleTrackChange(onNext)}
+                onClick={handleNext}
                 className="p-2 hover:bg-purple-500/10 rounded-full transition-colors text-purple-400 hover:text-purple-300"
               >
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -339,7 +318,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       </p>
                     </div>
 
-                    <div className="mt-4">
+                    <div className="mt-4 overflow-y-auto">
                       <h4 className="text-sm font-medium text-purple-400 mb-2">Next in queue:</h4>
                       <div className="space-y-2">
                         {queueTracks.slice(0, 5).map((queueTrack, index) => (
