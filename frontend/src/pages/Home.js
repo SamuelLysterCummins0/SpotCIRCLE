@@ -1349,18 +1349,18 @@ const Home = () => {
         />
         <div className="flex">
           {/* Playlist Sidebar */}
-          <div className="fixed left-5 top-1/2 -translate-y-1/2 z-50">
-            <div className="bg-black/30 backdrop-blur-md rounded-2xl p-2 shadow-xl border border-white/5">
+          <div className="fixed left-8 top-1/2 -translate-y-1/2 z-50">
+            <div className="bg-black/40 backdrop-blur-lg rounded-2xl p-4 shadow-xl border border-white/5">
               <div 
-                className="flex flex-col gap-2 max-h-[70vh] overflow-y-auto"
+                className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto px-2 pb-2 pt-2 -mx-2 -mb-2 -mt-2"
               >
                 {playlists.map((playlist, index) => (
                   <button
                     key={`${playlist.id}-${index}`}
                     onClick={() => handlePlaylistSelect(playlist)}
-                    className={`group relative w-36 h-12 rounded-xl overflow-hidden transition-all hover:scale-105 ${
+                    className={`group relative w-40 h-12 rounded-xl overflow-hidden transition-all hover:scale-105 ${
                       selectedPlaylist?.id === playlist.id 
-                        ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-black/50' 
+                        ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-black' 
                         : ''
                     }`}
                     title={playlist.name}
@@ -1372,8 +1372,8 @@ const Home = () => {
                         className="w-12 h-12 object-cover"
                       />
                       <div className="flex-1 px-2 text-left truncate">
-                        <p className="text-xs font-medium text-white truncate">{playlist.name}</p>
-                        <p className="text-[10px] text-gray-400 truncate">
+                        <p className="text-xs font-medium text-white truncate antialiased">{playlist.name}</p>
+                        <p className="text-[10px] text-gray-400 truncate antialiased">
                           {playlist.tracks?.total || 0} tracks
                         </p>
                       </div>
