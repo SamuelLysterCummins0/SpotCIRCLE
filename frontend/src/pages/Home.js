@@ -385,6 +385,31 @@ const Home = () => {
     }
   };
 
+  const handleAddToQueue = async (track, event) => {
+    event.stopPropagation(); // Prevent track selection when clicking queue button
+    try {
+      const deviceId = window.spotifyWebPlaybackDeviceId;
+      if (!deviceId) {
+        throw new Error("No playback device found. Please refresh the page.");
+      }
+
+      // Add track to local queue state
+      setQueue(prevQueue => [...prevQueue, track]);
+
+      // Add track to Spotify queue
+      await api.post('/api/spotify/player/queue', {
+        uri: track.uri,
+        deviceId
+      });
+
+      // Show success feedback through UI animation
+      // Animation will be handled by Framer Motion in the component
+    } catch (error) {
+      console.error("Error adding to queue:", error);
+      alert(`Error: ${error.response?.data?.error || 'Failed to add track to queue'}`);
+    }
+  };
+
   const handlePlayPause = async () => {
     try {
       if (!currentTrack) return;
@@ -419,7 +444,9 @@ const Home = () => {
       // Get the next track from the queue first
       let nextTrack = null;
       if (selectedPlaylist?.tracks?.items) {
-        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => item.track.id === currentTrack.id);
+        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => 
+          item.track && item.track.id === currentTrack?.id
+        );
         if (currentIndex !== -1 && currentIndex < selectedPlaylist.tracks.items.length - 1) {
           nextTrack = selectedPlaylist.tracks.items[currentIndex + 1].track;
         } else if (currentIndex !== -1) {
@@ -430,7 +457,7 @@ const Home = () => {
         nextTrack = queue[0];
       }
 
-      // Update UI immediately if we know the next track
+      // Update UI immediately with predicted state
       if (nextTrack) {
         setCurrentTrack(nextTrack);
         setQueue(prevQueue => prevQueue.slice(1));
@@ -443,30 +470,50 @@ const Home = () => {
         }
       });
 
-      // Update the state after a very short delay
-      setTimeout(updatePlayerState, 100);
+      // Verify state after a short delay
+      setTimeout(async () => {
+        try {
+          const response = await axios.get('/api/spotify/player/current', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+            }
+          });
+
+          if (response.data?.item) {
+            // Only update if different from our prediction
+            if (!nextTrack || nextTrack.id !== response.data.item.id) {
+              setCurrentTrack(response.data.item);
+            }
+            if (response.data.queue) {
+              setQueue(response.data.queue);
+            }
+          }
+        } catch (error) {
+          console.error('Error verifying track state:', error);
+        }
+      }, 300);
     } catch (error) {
       console.error('Error skipping to next track:', error);
-      // Revert to actual state if there was an error
       updatePlayerState();
     }
   };
 
   const handlePrevious = async () => {
     try {
-      // Get the previous track if possible
+      // Try to predict previous track
       let prevTrack = null;
       if (selectedPlaylist?.tracks?.items) {
-        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => item.track.id === currentTrack.id);
+        const currentIndex = selectedPlaylist.tracks.items.findIndex(item => 
+          item.track && item.track.id === currentTrack?.id
+        );
         if (currentIndex > 0) {
           prevTrack = selectedPlaylist.tracks.items[currentIndex - 1].track;
         } else if (currentIndex === 0) {
-          // Loop to the end
           prevTrack = selectedPlaylist.tracks.items[selectedPlaylist.tracks.items.length - 1].track;
         }
       }
 
-      // Update UI immediately if we know the previous track
+      // Update UI immediately with predicted state
       if (prevTrack) {
         setCurrentTrack(prevTrack);
       }
@@ -478,11 +525,30 @@ const Home = () => {
         }
       });
 
-      // Update the state after a very short delay
-      setTimeout(updatePlayerState, 100);
+      // Verify state after a short delay
+      setTimeout(async () => {
+        try {
+          const response = await axios.get('/api/spotify/player/current', {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+            }
+          });
+
+          if (response.data?.item) {
+            // Only update if different from our prediction
+            if (!prevTrack || prevTrack.id !== response.data.item.id) {
+              setCurrentTrack(response.data.item);
+            }
+            if (response.data.queue) {
+              setQueue(response.data.queue);
+            }
+          }
+        } catch (error) {
+          console.error('Error verifying track state:', error);
+        }
+      }, 300);
     } catch (error) {
       console.error('Error going to previous track:', error);
-      // Revert to actual state if there was an error
       updatePlayerState();
     }
   };
@@ -917,30 +983,83 @@ const Home = () => {
     );
   };
 
-  const TrackItem = ({ track, onClick, isPlaying, index }) => (
-    <div
-      onClick={onClick}
-      className={`flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${
-        isPlaying ? 'bg-white/10' : ''
-      }`}
-    >
-      <span className="text-sm text-gray-400 w-6 text-right">{index}</span>
-      <img 
-        src={track.album?.images[0]?.url || '/default-track.png'} 
-        alt="" 
-        className="w-12 h-12 rounded object-cover"
-      />
-      <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">{track.name}</p>
-        <p className="text-sm text-gray-400 truncate">
-          {track.artists.map(artist => artist.name).join(', ')}
-        </p>
+  const TrackItem = ({ track, onClick, isPlaying, index }) => {
+    const [isQueueAnimating, setIsQueueAnimating] = useState(false);
+
+    const handleQueueClick = (e) => {
+      setIsQueueAnimating(true);
+      handleAddToQueue(track, e);
+      // Reset animation state after animation completes
+      setTimeout(() => setIsQueueAnimating(false), 1000);
+    };
+
+    return (
+      <div
+        onClick={onClick}
+        className={`flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${
+          isPlaying ? 'bg-white/10' : ''
+        }`}
+      >
+        <span className="text-sm text-gray-400 w-6 text-right">{index}</span>
+        <img 
+          src={track.album?.images[0]?.url || '/default-track.png'} 
+          alt="" 
+          className="w-12 h-12 rounded object-cover"
+        />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate">{track.name}</p>
+          <p className="text-sm text-gray-400 truncate">
+            {track.artists.map(artist => artist.name).join(', ')}
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right text-sm text-gray-400">
+            {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
+          </div>
+          <motion.button
+            onClick={handleQueueClick}
+            className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 hover:text-purple-300 
+                     transition-colors group relative"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            animate={isQueueAnimating ? {
+              scale: [1, 1.2, 0.9, 1.1, 1],
+              rotate: [0, 20, -20, 10, 0],
+            } : {}}
+            transition={{
+              duration: 0.6,
+              ease: "easeInOut",
+            }}
+          >
+            <motion.div
+              className="absolute inset-0 bg-purple-400/20 rounded-full"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={isQueueAnimating ? {
+                scale: [1, 2],
+                opacity: [0.5, 0],
+              } : {}}
+              transition={{ duration: 0.6 }}
+            />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="transform group-hover:translate-x-0.5 transition-transform"
+            >
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
+            </svg>
+          </motion.button>
+        </div>
       </div>
-      <div className="text-right text-sm text-gray-400">
-        {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const MainPageTrackItem = ({ track, index, onClick }) => (
     <div

@@ -21,6 +21,7 @@ router.put('/player/seek', spotifyController.seek);
 router.put('/player/volume', spotifyController.setVolume);
 router.put('/player/repeat', spotifyController.setRepeatMode);
 router.put('/player/shuffle', spotifyController.setShuffle);
+router.post('/player/queue', spotifyController.addToQueue);
 
 // Player state routes
 router.get('/player/current', async (req, res) => {

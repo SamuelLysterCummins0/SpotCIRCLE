@@ -443,3 +443,27 @@ exports.transferPlayback = async (req, res) => {
     });
   }
 };
+
+// Add to queue
+exports.addToQueue = async (req, res) => {
+  try {
+    const { access_token } = req.user;
+    const { uri, deviceId } = req.body;
+    const spotifyApiInstance = getSpotifyApi(access_token);
+
+    // Add track to queue
+    await spotifyApiInstance.post(`/me/player/queue`, null, {
+      params: {
+        uri: uri,
+        device_id: deviceId
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding to queue:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: error.response?.data?.error?.message || 'Failed to add to queue'
+    });
+  }
+};

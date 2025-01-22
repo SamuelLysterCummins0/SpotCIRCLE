@@ -10,17 +10,18 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [queueTracks, setQueueTracks] = useState([]);
   const containerRef = useRef(null);
 
-  useEffect(() => {
-    if (track?.album?.images[0]?.url) {
-      extractColors(track.album.images[0].url);
-    }
-  }, [track]);
-
   const fetchQueue = useCallback(async () => {
     try {
       const response = await axios.get('/api/spotify/player/state');
       if (response.data?.queue) {
-        setQueueTracks(response.data.queue);
+        setQueueTracks(prevTracks => {
+          const newTracks = response.data.queue;
+          if (prevTracks.length !== newTracks.length || 
+              JSON.stringify(prevTracks) !== JSON.stringify(newTracks)) {
+            return newTracks;
+          }
+          return prevTracks;
+        });
       }
     } catch (error) {
       console.debug('Queue fetch attempt failed:', error);
@@ -28,25 +29,96 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   }, []);
 
   useEffect(() => {
-    if (track) {
-      fetchQueue();
-      const pollInterval = setInterval(fetchQueue, 2000); 
-      return () => clearInterval(pollInterval);
-    }
-  }, [track, fetchQueue]);
+    if (!track || !isExpanded) return;
+
+    fetchQueue();
+    
+    const pollInterval = setInterval(fetchQueue, 2000);
+    return () => clearInterval(pollInterval);
+  }, [track, isExpanded, fetchQueue]);
 
   useEffect(() => {
-    if (track) {
+    if (track && isPlaying) {
       const timeoutId = setTimeout(fetchQueue, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [isPlaying, fetchQueue]);
+  }, [isPlaying, track, fetchQueue]);
+
+  const handleTrackChange = async (action) => {
+    if (isChangingTrack) return;
+    
+    setIsChangingTrack(true);
+    try {
+      await action();
+      
+      if (isExpanded) {
+        setTimeout(async () => {
+          try {
+            const response = await axios.get('/api/spotify/player/current', {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+              }
+            });
+
+            if (response.data?.queue) {
+              setQueueTracks(prevTracks => {
+                const newTracks = response.data.queue;
+                if (prevTracks.length !== newTracks.length || 
+                    JSON.stringify(prevTracks) !== JSON.stringify(newTracks)) {
+                  return newTracks;
+                }
+                return prevTracks;
+              });
+            }
+          } catch (error) {
+            console.error('Error updating queue:', error);
+          }
+          setIsChangingTrack(false);
+        }, 300);
+      } else {
+        setIsChangingTrack(false);
+      }
+    } catch (error) {
+      console.error('Track change failed:', error);
+      setIsChangingTrack(false);
+    }
+  };
+
+  const extractColors = useCallback((imageUrl) => {
+    if (!imageUrl) return;
+    
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = Math.min(img.width, 100);  
+      canvas.height = Math.min(img.height, 100);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const colors = [];
+      
+      const step = Math.max(4 * 100, Math.floor(imageData.length / 50));
+      for (let i = 0; i < imageData.length; i += step) {
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        colors.push(`rgb(${r}, ${g}, ${b})`);
+      }
+      
+      setDominantColors(colors.slice(0, 2));
+    };
+    
+    img.src = imageUrl;
+  }, []);
 
   useEffect(() => {
-    if (isExpanded && track) {
-      fetchQueue();
+    if (track?.album?.images[0]?.url) {
+      extractColors(track.album.images[0].url);
     }
-  }, [isExpanded, fetchQueue]);
+  }, [track, extractColors]);
 
   useEffect(() => {
     const handleGlobalScroll = (e) => {
@@ -80,43 +152,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     };
   }, [isExpanded, scrollPosition]);
 
-  const handleTrackChange = async (action) => {
-    setIsChangingTrack(true);
-    await action();
-    setTimeout(() => {
-      setIsChangingTrack(false);
-      fetchQueue();
-    }, 1000);
-  };
-
-  const extractColors = (imageUrl) => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    img.src = imageUrl;
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const colors = [];
-      
-      for (let i = 0; i < imageData.length; i += 4 * 1000) {
-        const r = imageData[i];
-        const g = imageData[i + 1];
-        const b = imageData[i + 2];
-        colors.push(`rgb(${r}, ${g}, ${b})`);
-      }
-      
-      setDominantColors(colors.slice(0, 3));
-    };
-  };
-
-  if (!track) return null;
-
   const handleWheel = (e) => {
     if (!isExpanded) return;
     e.preventDefault();
@@ -141,6 +176,8 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
       transition: { duration: 0.5 }
     }
   };
+
+  if (!track) return null;
 
   return (
     <div 
