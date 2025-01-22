@@ -329,7 +329,7 @@ const Home = () => {
       // Get track URIs
       const trackUris = trackQueue.map(t => t.uri);
 
-      // Start playback with the track URIs
+      // Get device ID
       const deviceId = window.spotifyWebPlaybackDeviceId;
       console.log("Using device ID:", deviceId);
 
@@ -337,18 +337,11 @@ const Home = () => {
         throw new Error("No playback device found. Please refresh the page.");
       }
 
-      // First transfer playback to our device
-      await axios.put('/api/spotify/player', {
-        deviceId
-      });
-
-      // Wait a bit for the transfer to complete
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Then start playback
+      // Start playback immediately with the track URIs
       const response = await axios.put('/api/spotify/play', {
         uris: trackUris,
-        deviceId
+        deviceId,
+        position_ms: 0 // Start from beginning
       });
 
       console.log("API response:", response.data);
@@ -360,7 +353,6 @@ const Home = () => {
 
     } catch (error) {
       console.error("Error playing track:", error);
-      // Show error to user
       if (error.response?.data?.error) {
         alert(`Error: ${error.response.data.error}`);
       } else {

@@ -191,14 +191,34 @@ exports.getPlaybackState = async (req, res) => {
   try {
     const { access_token } = req.user;
     const spotifyApiInstance = getSpotifyApi(access_token);
-    const response = await spotifyApiInstance.get('/me/player');
+
+    // Get current playback state
+    const playbackResponse = await spotifyApiInstance.get('/me/player');
     
-    res.json(response.data);
+    // If no active device, return 204
+    if (!playbackResponse.data) {
+      return res.status(204).send();
+    }
+
+    // Get queue
+    const queueResponse = await spotifyApiInstance.get('/me/player/queue')
+      .catch(error => {
+        // Queue might be empty or unavailable
+        console.warn('Failed to fetch queue:', error.message);
+        return { data: { queue: [] } };
+      });
+
+    // Combine playback state with queue
+    const response = {
+      ...playbackResponse.data,
+      queue: queueResponse.data.queue || []
+    };
+
+    res.json(response);
   } catch (error) {
-    console.error('Error getting playback state:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to get playback state',
-      details: error.response?.data || error.message
+    console.error('Error getting playback state:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: error.response?.data?.error?.message || 'Failed to get playback state' 
     });
   }
 };

@@ -1,16 +1,41 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import axios from 'axios';
 
-const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue = [] }) => {
+const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [isChangingTrack, setIsChangingTrack] = useState(false);
   const [dominantColors, setDominantColors] = useState(['#1a1a2e', '#2a2a4e']);
+  const [queueTracks, setQueueTracks] = useState([]);
   const containerRef = useRef(null);
 
   useEffect(() => {
     if (track?.album?.images[0]?.url) {
       extractColors(track.album.images[0].url);
+    }
+  }, [track]);
+
+  // Fetch queue when track changes
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const response = await axios.get('http://localhost:5001/api/spotify/player/current', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
+          }
+        });
+
+        if (response.data?.queue) {
+          setQueueTracks(response.data.queue);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch queue:', error);
+      }
+    };
+
+    if (track) {
+      fetchQueue();
     }
   }, [track]);
 
@@ -24,15 +49,17 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
           e.clientY >= rect.top && 
           e.clientY <= rect.bottom
         ) {
-          e.preventDefault();
-          e.stopPropagation();
+          const newPosition = Math.min(
+            Math.max(scrollPosition + e.deltaY * 0.5, 0),
+            200
+          );
+          setScrollPosition(newPosition);
         }
       }
     };
 
-    // Prevent scrolling on the whole document when expanded
     if (isExpanded) {
-      window.addEventListener('wheel', handleGlobalScroll, { passive: false });
+      window.addEventListener('wheel', handleGlobalScroll);
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'auto';
@@ -42,7 +69,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
       window.removeEventListener('wheel', handleGlobalScroll);
       document.body.style.overflow = 'auto';
     };
-  }, [isExpanded]);
+  }, [isExpanded, scrollPosition]);
 
   const handleTrackChange = async (action) => {
     setIsChangingTrack(true);
@@ -65,7 +92,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       const colors = [];
       
-      // Sample colors from different parts of the image
       for (let i = 0; i < imageData.length; i += 4 * 1000) {
         const r = imageData[i];
         const g = imageData[i + 1];
@@ -73,7 +99,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
         colors.push(`rgb(${r}, ${g}, ${b})`);
       }
       
-      // Take a few distinct colors
       setDominantColors(colors.slice(0, 3));
     };
   };
@@ -82,12 +107,9 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
 
   const handleWheel = (e) => {
     if (!isExpanded) return;
-    e.preventDefault();
-    e.stopPropagation();
-    
     const newPosition = Math.min(
       Math.max(scrollPosition + e.deltaY * 0.5, 0),
-      200 // Maximum scroll distance
+      200
     );
     setScrollPosition(newPosition);
   };
@@ -104,18 +126,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
       transition: { duration: 0.5 }
     }
   };
-
-  // Ensure we always show 5 items in queue
-  const queueToShow = [...queue];
-  while (queueToShow.length < 5) {
-    queueToShow.push({ 
-      id: `empty-${queueToShow.length}`,
-      name: "No track",
-      artists: [{ name: "No artist" }],
-      album: { images: [{ url: "" }] },
-      isEmpty: true
-    });
-  }
 
   return (
     <div 
@@ -156,7 +166,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium text-base truncate text-white">{track.name}</h3>
                 <p className="text-purple-400 text-sm truncate hover:text-purple-300 transition-colors">
-                  {track.artists.map(a => a.name).join(', ')}
+                  {track.artists?.map(a => a.name).join(', ')}
                 </p>
               </div>
             </div>
@@ -253,7 +263,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
                     <div>
                       <h3 className="font-bold text-xl truncate text-white">{track.name}</h3>
                       <p className="text-purple-400 text-base truncate hover:text-purple-300 transition-colors">
-                        {track.artists.map(a => a.name).join(', ')}
+                        {track.artists?.map(a => a.name).join(', ')}
                       </p>
                       <p className="text-purple-500/50 text-sm mt-2">
                         {track.album?.name}
@@ -263,30 +273,22 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying, queue 
                     <div className="mt-4">
                       <h4 className="text-sm font-medium text-purple-400 mb-2">Next in queue:</h4>
                       <div className="space-y-2">
-                        {queueToShow.slice(0, 5).map((queuedTrack, index) => (
+                        {queueTracks.slice(0, 5).map((queueTrack, index) => (
                           <div 
-                            key={queuedTrack.id} 
-                            className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
-                              queuedTrack.isEmpty ? 'opacity-50' : 'hover:bg-purple-500/5'
-                            }`}
+                            key={queueTrack.id || index} 
+                            className="flex items-center gap-2 p-2 rounded-lg hover:bg-purple-500/5 transition-colors"
                           >
-                            <div className="w-8 h-8 rounded shadow-sm bg-purple-900/20 overflow-hidden flex items-center justify-center">
-                              {queuedTrack.album?.images[0]?.url ? (
-                                <img
-                                  src={queuedTrack.album.images[0].url}
-                                  alt={queuedTrack.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <svg className="w-4 h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                                </svg>
-                              )}
+                            <div className="w-8 h-8 rounded shadow-sm overflow-hidden">
+                              <img
+                                src={queueTrack.album?.images[0]?.url || '/default-album.png'}
+                                alt={queueTrack.name}
+                                className="w-full h-full object-cover"
+                              />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm truncate text-white">{queuedTrack.name}</p>
+                              <p className="text-sm truncate text-white">{queueTrack.name}</p>
                               <p className="text-xs text-purple-400 truncate">
-                                {queuedTrack.artists.map(a => a.name).join(', ')}
+                                {queueTrack.artists?.map(a => a.name).join(', ')}
                               </p>
                             </div>
                           </div>

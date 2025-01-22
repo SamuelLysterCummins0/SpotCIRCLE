@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -10,6 +10,77 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
   const [error, setError] = useState(null);
   const [playerState, setPlayerState] = useState(null);
   const [volume, setVolume] = useState(50);
+  const lastStateRef = useRef(null);
+  const stateTimeoutRef = useRef(null);
+
+  // Helper function to determine if state change is significant
+  const isSignificantStateChange = (oldState, newState) => {
+    if (!oldState || !newState) return true;
+
+    // Track change
+    if (oldState?.track_window?.current_track?.uri !== newState?.track_window?.current_track?.uri) {
+      return true;
+    }
+
+    // Play/pause state change
+    if (oldState.paused !== newState.paused) {
+      return true;
+    }
+
+    // Position change of more than 1 second
+    if (Math.abs(oldState.position - newState.position) > 1000) {
+      return true;
+    }
+
+    // Duration change of more than 100ms
+    if (Math.abs(oldState.duration - newState.duration) > 100) {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Handle player state changes with debouncing
+  const handleStateChange = useCallback((state) => {
+    if (!state) return;
+
+    // Clear any pending timeout
+    if (stateTimeoutRef.current) {
+      clearTimeout(stateTimeoutRef.current);
+    }
+
+    // Set a new timeout
+    stateTimeoutRef.current = setTimeout(() => {
+      const lastState = lastStateRef.current;
+
+      if (isSignificantStateChange(lastState, state)) {
+        // Only log state changes that affect the user experience
+        if (lastState?.track_window?.current_track?.uri !== state.track_window.current_track.uri ||
+            lastState?.paused !== state.paused) {
+          console.log('Player State:', {
+            track: state.track_window.current_track.name,
+            artist: state.track_window.current_track.artists[0].name,
+            paused: state.paused,
+            position: state.position,
+            duration: state.duration
+          });
+        }
+
+        setPlayerState(state);
+        onPlayPause && onPlayPause(!state.paused);
+        lastStateRef.current = state;
+      }
+    }, 50); // Reduced debounce time for faster response
+  }, [onPlayPause]);
+
+  // Handle playback errors
+  const handlePlaybackError = useCallback(({ message }) => {
+    // Only log errors that aren't about no list being loaded
+    if (!message.includes('no list was loaded')) {
+      console.error('Failed to perform playback:', message);
+      setError('Playback error occurred');
+    }
+  }, []);
 
   // Initialize the Spotify Web Playback SDK
   useEffect(() => {
@@ -51,7 +122,6 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
 
       player.addListener('playback_error', handlePlaybackError);
 
-      // State management
       player.addListener('player_state_changed', handleStateChange);
 
       // Ready handling
@@ -66,23 +136,75 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
         // Store device ID globally
         window.spotifyWebPlaybackDeviceId = device_id;
 
+        // Check if device is ready before transfer
+        const checkDeviceReady = async (token) => {
+          try {
+            const response = await axios.get(`${API_URL}/api/spotify/player/devices`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            return response.data.devices.some(d => d.id === device_id);
+          } catch (error) {
+            return false;
+          }
+        };
+
         // Transfer playback to this device
         const transferPlayback = async () => {
           try {
             const token = localStorage.getItem('spotify_access_token');
-            await axios.put(`${API_URL}/api/spotify/player`, {
-              deviceId: device_id
-            }, {
-              headers: {
-                'Authorization': `Bearer ${token}`
+            if (!token) {
+              throw new Error('No access token available');
+            }
+
+            // Wait for device to be ready (max 3 attempts)
+            let deviceReady = false;
+            for (let i = 0; i < 3; i++) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              deviceReady = await checkDeviceReady(token);
+              if (deviceReady) break;
+            }
+
+            if (!deviceReady) {
+              // Device not ready yet, but that's okay - it will be ready when needed
+              return;
+            }
+            
+            // Only transfer if we're not already active
+            const response = await axios.get(`${API_URL}/api/spotify/player/current`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            }).catch(error => {
+              if (error.response?.status === 204) {
+                return { data: { device: null } };
               }
+              throw error;
             });
-            console.log('Successfully transferred playback to device:', device_id);
+            
+            const currentDevice = response.data?.device?.id;
+            if (currentDevice !== device_id) {
+              await axios.put(`${API_URL}/api/spotify/player`, {
+                deviceId: device_id
+              }, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+            }
           } catch (error) {
-            console.error('Error transferring playback:', error);
+            // Only log if it's not a 204 response or device already active
+            if (error.response?.status !== 204 && 
+                !(error.response?.data?.message === 'Device already active')) {
+              // Don't log the initial setup error
+              if (error.response?.status !== 400 || window.spotifyHasPlayedTrack) {
+                console.warn('Device transfer not completed, will retry when playing:', 
+                  error.response?.status === 400 ? 'Device not ready' : error.message
+                );
+              }
+            }
           }
         };
-        transferPlayback();
+
+        // Initial transfer attempt
+        transferPlayback().catch(() => {
+          // Silently fail - we'll retry when playing
+        });
       });
 
       player.addListener('not_ready', ({ device_id }) => {
@@ -156,42 +278,6 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
     }
   };
 
-  // Handle player state changes
-  const handleStateChange = (state) => {
-    if (state) {
-      // Only log state changes that are meaningful
-      if (!playerState || 
-          state.paused !== playerState.paused ||
-          state.position !== playerState.position ||
-          state.track_window?.current_track?.uri !== playerState?.track_window?.current_track?.uri) {
-        console.log('Player State:', {
-          track: state.track_window.current_track.name,
-          artist: state.track_window.current_track.artists[0].name,
-          paused: state.paused,
-          position: state.position,
-          duration: state.duration
-        });
-      }
-      
-      // Only update if the state actually changed
-      if (!playerState || 
-          state.paused !== playerState.paused || 
-          state.track_window?.current_track?.uri !== playerState?.track_window?.current_track?.uri) {
-        setPlayerState(state);
-        onPlayPause && onPlayPause(!state.paused);
-      }
-    }
-  };
-
-  // Handle playback errors
-  const handlePlaybackError = ({ message }) => {
-    // Only log errors that aren't about no list being loaded
-    if (!message.includes('no list was loaded')) {
-      console.error('Failed to perform playback:', message);
-      setError('Playback error occurred');
-    }
-  };
-
   // Handle play/pause
   useEffect(() => {
     if (!player || !isReady || !deviceId) return;
@@ -200,42 +286,17 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
       try {
         // Get current state to check if we have a track loaded
         const state = await player.getCurrentState();
-        if (!state && isPlayingProp) {
-          // No track loaded, don't try to resume
-          return;
-        }
+        if (!state && isPlayingProp) return;
+
+        // Check if we're already in the desired state
+        if (state?.paused === !isPlayingProp) return;
 
         if (isPlayingProp) {
-          const resumeSuccess = await player.resume().catch(e => {
-            console.error('Resume failed:', e);
-            return false;
-          });
-          
-          if (!resumeSuccess) {
-            console.log('Falling back to API call for resume');
-            await axios.put(`${API_URL}/api/spotify/player/play`, null, {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-              }
-            });
-          }
+          await player.resume();
         } else {
-          const pauseSuccess = await player.pause().catch(e => {
-            console.error('Pause failed:', e);
-            return false;
-          });
-          
-          if (!pauseSuccess) {
-            console.log('Falling back to API call for pause');
-            await axios.put(`${API_URL}/api/spotify/player/pause`, null, {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-              }
-            });
-          }
+          await player.pause();
         }
       } catch (error) {
-        // Only log errors that aren't about no track being loaded
         if (!error.message?.includes('no list was loaded')) {
           console.error('Error controlling playback:', error);
           setError('Failed to control playback');
@@ -243,7 +304,9 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
       }
     };
 
-    handlePlayback();
+    // Small delay to allow for state updates
+    const timeoutId = setTimeout(handlePlayback, 50);
+    return () => clearTimeout(timeoutId);
   }, [isPlayingProp, player, isReady, deviceId]);
 
   // Handle volume changes
@@ -255,49 +318,32 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
     });
   }, [volume, player, isReady]);
 
-  // Ready handling
-  useEffect(() => {
-    if (!player || !isReady || !deviceId) return;
-
-    const transferPlayback = async () => {
-      try {
-        const token = localStorage.getItem('spotify_access_token');
-        await axios.put(`${API_URL}/api/spotify/player`, {
-          deviceId
-        }, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        console.log('Successfully transferred playback to device:', deviceId);
-      } catch (error) {
-        console.error('Error transferring playback:', error);
-      }
-    };
-
-    transferPlayback();
-  }, [player, isReady, deviceId]);
-
   // Handle URI changes
   useEffect(() => {
     if (!player || !isReady || !selectedPlaylist || !trackPosition) return;
 
     const playTrack = async () => {
-      console.log('Selected Playlist:', selectedPlaylist);
-      console.log('Playing track with context_uri:', `spotify:playlist:${selectedPlaylist}`, 'and offset:', trackPosition);
       try {
-        const response = await axios.put(`${API_URL}/api/spotify/player/play`, {
-          context_uri: `spotify:playlist:${selectedPlaylist}`,
-          offset: { position: trackPosition }
-        }, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log('API response:', response.data);
+        // Mark that we've played a track
+        window.spotifyHasPlayedTrack = true;
+        
+        const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist}/tracks`);
+        const tracks = response.data;
+        
+        if (!tracks || tracks.length === 0) {
+          console.error('No tracks found in playlist');
+          return;
+        }
+
+        const track = tracks[trackPosition];
+        if (!track) {
+          console.error('Track not found at position:', trackPosition);
+          return;
+        }
+
+        await player.resume();
       } catch (error) {
-        console.error('Error playing track:', error);
+        console.error('Failed to play track:', error);
         setError('Failed to play track');
       }
     };
