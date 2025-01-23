@@ -1,3 +1,6 @@
 1.Look through ALL files before making changes.
 2.Go through all files and check structure and flow throughout frontend and backend.
 3. Keep a knowledge of when functionality works and keep this in mind before making new changes or adding new features.
+4. Try not to mess up the structure of large code files which could cause erros and double check that you havent made any mistakes.
+5. Only do changes to UI that I ask and not change the UI of anything else or the functionality.
+6. Dont change the functioanlity of of the UI when im asking for just UI changes that dont need new functioanlity.

@@ -42,14 +42,13 @@ const Home = () => {
   const [topAlbums, setTopAlbums] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [queue, setQueue] = useState([]);
   const [selectedTimeRange, setSelectedTimeRange] = useState(TimeRanges.SHORT);
-  const [hoveredTrack, setHoveredTrack] = useState(null);
   const [expandedSection, setExpandedSection] = useState(null);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+  const { currentTrack, updateCurrentTrack, setIsPlaying: setPlayerIsPlaying } = usePlayerContext();
   const [playlistTracks, setPlaylistTracks] = useState([]);
   const [showPlaylistView, setShowPlaylistView] = useState(false);
   const [animatingPlaylist, setAnimatingPlaylist] = useState(null);
@@ -197,13 +196,28 @@ const Home = () => {
       
       try {
         const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`);
-        const tracks = response.data.filter(track => 
+        const tracks = response.data;
+        
+        if (!Array.isArray(tracks)) {
+          console.error('Expected tracks array but got:', typeof tracks);
+          setPlaylistTracks([]);
+          return;
+        }
+
+        // Additional safety check for track properties
+        const validTracks = tracks.filter(track => 
+          track && 
           track.uri && 
-          !track.uri.includes('spotify:local') && 
-          track.uri.startsWith('spotify:track:')
+          track.name && 
+          track.artists && 
+          Array.isArray(track.artists) && 
+          track.album && 
+          track.album.images && 
+          Array.isArray(track.album.images)
         );
-        console.log(`Loaded ${tracks.length} valid tracks from playlist`);
-        setPlaylistTracks(tracks);
+
+        console.log(`Loaded ${validTracks.length} valid tracks from playlist`);
+        setPlaylistTracks(validTracks);
       } catch (error) {
         console.error('Error loading playlist tracks:', error);
         setPlaylistTracks([]);
@@ -254,7 +268,7 @@ const Home = () => {
 
   const getPlaylistStats = () => {
     if (!selectedPlaylist || !playlistTracks || playlistTracks.length === 0) {
-      return { duration: 0, topGenre: 'Unknown', lastUpdated: 'Never' };
+      return { duration: '0 min', trackCount: 0, lastUpdated: 'Never' };
     }
   
     try {
@@ -264,132 +278,63 @@ const Home = () => {
         return sum + (track.duration_ms || 0);
       }, 0);
       
-      const durationInMinutes = Math.floor(totalDuration / 60000);
+      // Format duration in hours, minutes, and seconds
+      const hours = Math.floor(totalDuration / (1000 * 60 * 60));
+      const minutes = Math.floor((totalDuration % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((totalDuration % (1000 * 60)) / 1000);
+      
+      let duration;
+      if (hours > 0) {
+        duration = `${hours} hr ${minutes} min`;
+      } else if (minutes > 0) {
+        duration = `${minutes} min ${seconds} sec`;
+      } else {
+        duration = `${seconds} sec`;
+      }
   
-      // Get top genre - safely handle missing artist/genre data
-      const genreCounts = {};
-      playlistTracks.forEach(track => {
-        if (!track || !Array.isArray(track.artists)) return;
-        
-        track.artists.forEach(artist => {
-          if (!artist || !Array.isArray(artist.genres)) return;
-          
-          artist.genres.forEach(genre => {
-            if (typeof genre === 'string') {
-              genreCounts[genre] = (genreCounts[genre] || 0) + 1;
-            }
-          });
-        });
-      });
-  
-      const topGenre = Object.entries(genreCounts).length > 0 
-        ? Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0][0]
-        : 'Various';
+      // Get track count
+      const trackCount = playlistTracks.length;
   
       // Format last updated date - safely handle missing data
       let lastUpdated = 'Recently';
       if (selectedPlaylist.tracks?.items?.[0]?.added_at) {
         try {
-          lastUpdated = new Date(selectedPlaylist.tracks.items[0].added_at).toLocaleDateString();
+          const date = new Date(selectedPlaylist.tracks.items[0].added_at);
+          const now = new Date();
+          const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+          
+          if (diffInDays === 0) {
+            const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
+            if (diffInHours === 0) {
+              const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+              lastUpdated = `${diffInMinutes} minutes ago`;
+            } else {
+              lastUpdated = `${diffInHours} hours ago`;
+            }
+          } else if (diffInDays === 1) {
+            lastUpdated = 'Yesterday';
+          } else if (diffInDays < 7) {
+            lastUpdated = `${diffInDays} days ago`;
+          } else {
+            lastUpdated = date.toLocaleDateString(undefined, { 
+              year: 'numeric', 
+              month: 'short', 
+              day: 'numeric' 
+            });
+          }
         } catch (e) {
           console.warn('Error formatting date:', e);
         }
       }
   
       return {
-        duration: `${durationInMinutes} mins`,
-        topGenre,
+        duration,
+        trackCount,
         lastUpdated
       };
     } catch (error) {
       console.error('Error calculating playlist stats:', error);
-      return { duration: '0 mins', topGenre: 'Various', lastUpdated: 'Recently' };
-    }
-  };
-
-  const handleTrackSelect = async (track, trackList = null) => {
-    console.log("Selected Track:", track);
-    
-    try {
-      const deviceId = window.spotifyWebPlaybackDeviceId;
-      console.log("Using device ID:", deviceId);
-
-      if (!deviceId) {
-        throw new Error("No playback device found. Please refresh the page.");
-      }
-
-      // Check if we're playing from a playlist and have valid playlist data
-      if (selectedPlaylist?.uri && selectedPlaylist?.tracks?.items) {
-        console.log("Attempting to play from playlist:", selectedPlaylist.uri);
-        
-        // Find the track index in the playlist
-        const trackIndex = selectedPlaylist.tracks.items.findIndex(item => 
-          item.track && item.track.id === track.id
-        );
-        
-        console.log("Track index in playlist:", trackIndex);
-        
-        if (trackIndex !== -1) {
-          // Play using playlist context
-          const response = await axios.put('/api/spotify/play', {
-            context_uri: selectedPlaylist.uri,
-            offset: { position: trackIndex },
-            deviceId
-          });
-          console.log("API response:", response.data);
-          setCurrentTrack(track);
-          setIsPlaying(true);
-          return;
-        }
-      }
-
-      // If not playing from playlist or track not found in playlist, fallback to track URI
-      const currentTracks = trackList || topTracks;
-      if (!currentTracks || !Array.isArray(currentTracks)) {
-        throw new Error("No valid track list available");
-      }
-
-      const startIndex = currentTracks.findIndex(t => t && t.id === track.id);
-      if (startIndex === -1) {
-        throw new Error("Selected track not found in track list");
-      }
-
-      // Create a queue starting from the selected track
-      const trackQueue = [
-        ...currentTracks.slice(startIndex),
-        ...currentTracks.slice(0, startIndex)
-      ].filter(track => 
-        track && track.uri && 
-        !track.uri.includes('spotify:local') && 
-        track.uri.startsWith('spotify:track:')
-      );
-
-      if (trackQueue.length === 0) {
-        throw new Error("No playable tracks found in queue");
-      }
-
-      // Get track URIs
-      const trackUris = trackQueue.map(t => t.uri);
-
-      // Start playback with track URIs
-      const response = await axios.put('/api/spotify/play', {
-        uris: trackUris,
-        deviceId,
-        position_ms: 0
-      });
-
-      console.log("API response:", response.data);
-      setQueue(trackQueue.slice(1));
-      setCurrentTrack(trackQueue[0]);
-      setIsPlaying(true);
-
-    } catch (error) {
-      console.error("Error playing track:", error);
-      if (error.response?.data?.error) {
-        alert(`Error: ${error.response.data.error}`);
-      } else {
-        alert(`Error: ${error.message || 'Failed to play track'}`);
-      }
+      return { duration: '0 min', trackCount: 0, lastUpdated: 'Recently' };
     }
   };
 
@@ -565,6 +510,90 @@ const Home = () => {
     }
   };
 
+  const handleTrackSelect = async (track, trackList = null) => {
+    console.log("Selected Track:", track);
+    
+    try {
+      const deviceId = window.spotifyWebPlaybackDeviceId;
+      console.log("Using device ID:", deviceId);
+
+      if (!deviceId) {
+        throw new Error("No playback device found. Please refresh the page.");
+      }
+
+      // If clicking the same track that's currently playing, toggle play/pause
+      if (currentTrack?.id === track.id) {
+        if (isPlaying) {
+          await axios.put('/api/spotify/player/pause', { device_id: deviceId });
+          setIsPlaying(false);
+          setPlayerIsPlaying(false);
+        } else {
+          await axios.put('/api/spotify/player/play', { device_id: deviceId });
+          setIsPlaying(true);
+          setPlayerIsPlaying(true);
+        }
+        return;
+      }
+
+      // If not playing from playlist or track not found in playlist, fallback to track URI
+      const currentTracks = trackList || topTracks;
+      if (!currentTracks || !Array.isArray(currentTracks)) {
+        throw new Error("No valid track list available");
+      }
+
+      const startIndex = currentTracks.findIndex(t => t && t.id === track.id);
+      if (startIndex === -1) {
+        throw new Error("Selected track not found in track list");
+      }
+
+      // Create a queue starting from the selected track
+      const trackQueue = [
+        ...currentTracks.slice(startIndex),
+        ...currentTracks.slice(0, startIndex)
+      ].filter(track => 
+        track && track.uri && 
+        !track.uri.includes('spotify:local') && 
+        track.uri.startsWith('spotify:track:')
+      );
+
+      if (trackQueue.length === 0) {
+        throw new Error("No playable tracks found in queue");
+      }
+
+      // Get track URIs
+      const trackUris = trackQueue.map(t => t.uri);
+
+      // Start playback with track URIs
+      await axios.put('/api/spotify/player/play', {
+        device_id: deviceId,
+        uris: trackUris
+      });
+
+      setQueue(trackQueue.slice(1));
+      updateCurrentTrack(trackQueue[0]);
+      setIsPlaying(true);
+      setPlayerIsPlaying(true);
+
+    } catch (error) {
+      console.error("Error playing track:", error);
+      if (error.response?.data?.error) {
+        toast.error(`Error: ${error.response.data.error}`, {
+          style: {
+            background: '#4B0082',
+            color: '#fff',
+          },
+        });
+      } else {
+        toast.error(`Error: ${error.message || 'Failed to play track'}`, {
+          style: {
+            background: '#4B0082',
+            color: '#fff',
+          },
+        });
+      }
+    }
+  };
+
   const handlePlayPause = async () => {
     try {
       if (!currentTrack) return;
@@ -592,7 +621,7 @@ const Home = () => {
       try {
         const response = await axios.get('/api/spotify/player/state');
         if (response.data?.item && response.data.item.id !== currentTrack?.id) {
-          setCurrentTrack(response.data.item);
+          updateCurrentTrack(response.data.item);
           if (response.data?.queue) {
             setQueue(prevQueue => {
               // Only update if queue has actually changed
@@ -626,27 +655,40 @@ const Home = () => {
     };
   }, [isPlaying, debouncedUpdateState]);
 
+  const updatePlayerState = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/spotify/player/state');
+      if (response.data?.item && response.data.item.id !== currentTrack?.id) {
+        updateCurrentTrack(response.data.item);
+        if (response.data?.queue) {
+          setQueue(prevQueue => {
+            // Only update if queue has actually changed
+            const areQueuesEqual = prevQueue.length === response.data.queue.length &&
+              prevQueue.every((track, index) => track.id === response.data.queue[index].id);
+            return areQueuesEqual ? prevQueue : response.data.queue;
+          });
+        }
+      }
+      setIsPlaying(!response.data?.is_paused);
+      setPlayerIsPlaying(!response.data?.is_paused);
+    } catch (error) {
+      console.error('Failed to update player state:', error);
+    }
+  }, [currentTrack?.id, updateCurrentTrack, setPlayerIsPlaying]);
+
   const handleNext = async () => {
     try {
-      // Optimistically update UI state
-      const nextTrack = queue[0];
-      if (nextTrack) {
-        setCurrentTrack(nextTrack);
-        setQueue(prevQueue => prevQueue.slice(1));
-      }
-
-      await axios.post('/api/spotify/player/next', {}, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-        }
-      });
-
-      // Small delay before getting actual state
-      await new Promise(resolve => setTimeout(resolve, 50)); // Reduced from 100ms to 50ms
-      await debouncedUpdateState();
+      // Make API call first
+      await axios.post('/api/spotify/player/next');
+      
+      // Wait a tiny bit for Spotify to update its state
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Then update the UI with the actual state
+      await updatePlayerState();
     } catch (error) {
-      console.error('Error skipping to next track:', error);
-      debouncedUpdateState();
+      console.error('Failed to skip to next track:', error);
+      updatePlayerState();
     }
   };
 
@@ -664,25 +706,6 @@ const Home = () => {
     } catch (error) {
       console.error('Error going to previous track:', error);
       debouncedUpdateState();
-    }
-  };
-
-  const updatePlayerState = async () => {
-    try {
-      const response = await axios.get('/api/spotify/player/current', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-        }
-      });
-
-      if (response.data?.item) {
-        setCurrentTrack(response.data.item);
-        if (response.data.queue) {
-          setQueue(response.data.queue);
-        }
-      }
-    } catch (error) {
-      console.error('Error updating player state:', error);
     }
   };
 
@@ -741,7 +764,7 @@ const Home = () => {
   );
 
  const renderPlaylistView = () => {
-  const { duration, topGenre, lastUpdated } = getPlaylistStats();
+  const { duration, trackCount, lastUpdated } = getPlaylistStats();
   
   return (
     <motion.div
@@ -754,28 +777,142 @@ const Home = () => {
     >
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={handleBackToMain}
-              className="hover:bg-white/10 rounded-full p-2 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold">{selectedPlaylist?.name}</h1>
-              <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
-                <span>{duration}</span>
-                <span>•</span>
-                <span>{topGenre}</span>
-                <span>•</span>
-                <span>Updated {lastUpdated}</span>
+        <div className="flex items-start gap-4">
+          <button 
+            onClick={handleBackToMain} 
+            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+          >
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div className="flex flex-col items-start w-full">
+            <div className="relative flex flex-col w-full">
+              <h1 className="text-3xl font-bold text-white mb-8 pl-4">{selectedPlaylist?.name}</h1>
+              <div className="relative mb-10 group w-full px-4">
+                <div className="absolute -inset-1 bg-gradient-to-r from-purple-600/20 to-purple-900/20 rounded-lg blur opacity-25 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
+                <div className="relative w-full h-52 rounded-lg overflow-hidden bg-gradient-to-br from-purple-900/40 to-black/40 p-6">
+                  {/* Decorative circles */}
+                  <div className="absolute top-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl transform -translate-x-1/2 -translate-y-1/2"></div>
+                  <div className="absolute bottom-0 right-0 w-40 h-40 bg-purple-600/10 rounded-full blur-2xl transform translate-x-1/4 translate-y-1/4"></div>
+                  
+                  {/* Content container */}
+                  <div className="flex items-center justify-between h-full">
+                    {/* Left side info */}
+                    <div className="w-1/4 text-white/80 space-y-4">
+                      <div className="space-y-1">
+                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Created by</div>
+                        <div className="font-medium text-base truncate drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{selectedPlaylist?.owner?.display_name}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Followers</div>
+                        <div className="font-medium text-base drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{selectedPlaylist?.followers?.total || 0}</div>
+                      </div>
+                    </div>
+
+                    {/* Left decorative element */}
+                    <div className="relative w-24 h-full">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-[1px] h-24 bg-gradient-to-b from-transparent via-purple-500/30 to-transparent"></div>
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/5 to-purple-600/5 flex items-center justify-center">
+                          <div className="w-2 h-2 rounded-full bg-purple-400/40"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Center - Album cover with glow */}
+                    <div className="relative w-39 h-40 -ml-12">
+                      {/* Glow effects */}
+                      <div className="absolute inset-0 bg-purple-500/10 rounded-lg blur-xl"></div>
+                      <div className="absolute inset-0 bg-purple-600/5 rounded-lg blur-md"></div>
+                      {/* Backdrop */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-purple-900/40 to-black/40 rounded-lg backdrop-blur-sm"></div>
+                      <img 
+                        src={selectedPlaylist?.images?.[0]?.url} 
+                        alt={selectedPlaylist?.name}
+                        className="relative w-full h-full object-contain rounded-lg shadow-xl"
+                      />
+                      {/* Additional glow overlay */}
+                      <div className="absolute inset-0 rounded-lg shadow-[0_0_15px_rgba(168,85,247,0.15)] pointer-events-none"></div>
+                    </div>
+
+                    {/* Right decorative element */}
+                    <div className="relative w-24 h-full">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-[1px] h-24 bg-gradient-to-b from-transparent via-purple-500/30 to-transparent"></div>
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/5 to-purple-600/5 flex items-center justify-center">
+                          <div className="w-2 h-2 rounded-full bg-purple-400/40"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right side info */}
+                    <div className="w-1/4 text-right text-white/80 space-y-4">
+                      <div className="space-y-1">
+                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Playlist Type</div>
+                        <div className="font-medium text-base capitalize drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{selectedPlaylist?.public ? 'Public' : 'Private'}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Added On</div>
+                        <div className="font-medium text-base whitespace-nowrap drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{new Date(selectedPlaylist?.tracks?.items?.[0]?.added_at).toLocaleDateString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Stats */}
+        <div className="flex items-center justify-between w-full relative -mt-4 px-4">
+          <div className="group relative">
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-[2px] h-8 bg-gradient-to-b from-purple-500/50 to-transparent"></div>
+            <div className="flex flex-col items-center pt-10 px-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
+                <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{duration}</span>
+              <span className="text-xs uppercase tracking-widest text-purple-400/70 mt-1">Duration</span>
+            </div>
+          </div>
+
+          <div className="group relative">
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-[2px] h-12 bg-gradient-to-b from-purple-500/50 to-transparent"></div>
+            <div className="flex flex-col items-center pt-14 px-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
+                <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+              </div>
+              <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{trackCount}</span>
+              <span className="text-xs uppercase tracking-widest text-purple-400/70 mt-1">Tracks</span>
+            </div>
+          </div>
+
+          <div className="group relative">
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-[2px] h-8 bg-gradient-to-b from-purple-500/50 to-transparent"></div>
+            <div className="flex flex-col items-center pt-10 px-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
+                <svg className="w-5 h-5 text-purple-400 relative transform rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{lastUpdated}</span>
+              <span className="text-xs uppercase tracking-widest text-purple-400/70 mt-1">Last Updated</span>
+            </div>
+          </div>
+        </div>
+        <div className="w-full h-[2px] mt-4 bg-gradient-to-r from-transparent via-purple-500/30 to-transparent"></div>
 
         {/* Tracks List */}
         <div className="space-y-2 pb-24">
@@ -967,16 +1104,7 @@ const Home = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {displayArtists.map((artist, index) => (
             <div key={artist.id} className="group">
-              <div className="relative aspect-square">
-                <img
-                  src={artist.images[0]?.url}
-                  alt={artist.name}
-                  className="w-full h-full object-cover rounded-full"
-                />
-              </div>
-              <div className="mt-2 text-center">
-                <h3 className="font-medium truncate">{index + 1}. {artist.name}</h3>
-              </div>
+              <ArtistItem artist={artist} index={index + 1} />
             </div>
           ))}
           <AnimatePresence>
@@ -1000,16 +1128,7 @@ const Home = () => {
                 }}
                 className="group"
               >
-                <div className="relative aspect-square">
-                  <img
-                    src={artist.images[0]?.url}
-                    alt={artist.name}
-                    className="w-full h-full object-cover rounded-full"
-                  />
-                </div>
-                <div className="mt-2 text-center">
-                  <h3 className="font-medium truncate">{index + 8}. {artist.name}</h3>
-                </div>
+                <ArtistItem artist={artist} index={index + 8} />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -1059,19 +1178,7 @@ const Home = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           {displayAlbums.map((album, index) => (
             <div key={album.id} className="group">
-              <div className="relative aspect-square">
-                <img
-                  src={album.images[0]?.url}
-                  alt={album.name}
-                  className="w-full h-full object-cover rounded-lg"
-                />
-              </div>
-              <div className="mt-2">
-                <h3 className="font-medium truncate">{index + 1}. {album.name}</h3>
-                <p className="text-sm text-gray-400 truncate">
-                  {album.artists.map(a => a.name).join(', ')}
-                </p>
-              </div>
+              <AlbumItem album={album} index={index + 1} />
             </div>
           ))}
           <AnimatePresence>
@@ -1095,19 +1202,7 @@ const Home = () => {
                 }}
                 className="group"
               >
-                <div className="relative aspect-square">
-                  <img
-                    src={album.images[0]?.url}
-                    alt={album.name}
-                    className="w-full h-full object-cover rounded-lg"
-                  />
-                </div>
-                <div className="mt-2">
-                  <h3 className="font-medium truncate">{index + 8}. {album.name}</h3>
-                  <p className="text-sm text-gray-400 truncate">
-                    {album.artists.map(a => a.name).join(', ')}
-                  </p>
-                </div>
+                <AlbumItem album={album} index={index + 8} />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -1116,146 +1211,203 @@ const Home = () => {
     );
   };
 
+  const ArtistItem = ({ artist, index }) => (
+    <motion.div
+      className="group relative"
+      whileHover={{ scale: 1.03 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+    >
+      <div className="relative aspect-square">
+        <img
+          src={artist.images[0]?.url}
+          alt={artist.name}
+          className="w-full h-full object-cover rounded-full shadow-lg transition-all duration-300 group-hover:shadow-xl"
+        />
+        <div className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        </div>
+      </div>
+      <motion.div 
+        className="mt-2 text-center"
+        initial={{ opacity: 0.8 }}
+        whileHover={{ opacity: 1 }}
+      >
+        <h3 className="font-medium truncate text-white group-hover:text-white/90 transition-colors">{index}. {artist.name}</h3>
+      </motion.div>
+    </motion.div>
+  );
+
+  const AlbumItem = ({ album, index }) => (
+    <motion.div
+      className="group relative"
+      whileHover={{ scale: 1.03 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+    >
+      <div className="relative aspect-square">
+        <img
+          src={album.images[0]?.url}
+          alt={album.name}
+          className="w-full h-full object-cover rounded-lg shadow-lg transition-all duration-300 group-hover:shadow-xl"
+        />
+        <div className="absolute inset-0 bg-black/60 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        </div>
+      </div>
+      <motion.div 
+        className="mt-2"
+        initial={{ opacity: 0.8 }}
+        whileHover={{ opacity: 1 }}
+      >
+        <h3 className="font-medium truncate text-white group-hover:text-white/90 transition-colors">{index}. {album.name}</h3>
+        <p className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
+          {album.artists?.map(a => a.name).join(', ')}
+        </p>
+      </motion.div>
+    </motion.div>
+  );
+
   const TrackItem = ({ track, onClick, isPlaying, index }) => {
     const [isQueueAnimating, setIsQueueAnimating] = useState(false);
 
     const handleQueueClick = (e) => {
+      e.stopPropagation();
       setIsQueueAnimating(true);
       handleAddToQueue(track, e);
       setTimeout(() => setIsQueueAnimating(false), 1000);
     };
 
     return (
-      <div
+      <motion.div
+        className="group flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors relative"
         onClick={onClick}
-        className={`flex items-center gap-4 p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-colors ${
-          isPlaying ? 'bg-white/10' : ''
-        }`}
+        whileHover={{ x: 4 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
       >
-        <span className="text-sm text-gray-400 w-6 text-right">{index}</span>
-        <img 
-          src={track.album?.images[0]?.url || '/default-track.png'} 
-          alt="" 
-          className="w-12 h-12 rounded object-cover"
-        />
-        <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{track.name}</p>
-          <p className="text-sm text-gray-400 truncate">
-            {track.artists.map(artist => artist.name).join(', ')}
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right text-sm text-gray-400">
-            {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
-          </div>
-          <motion.button
-            onClick={handleQueueClick}
-            className="p-2 rounded-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 hover:text-purple-300 
-                     transition-colors group relative overflow-hidden"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            animate={isQueueAnimating ? {
-              scale: [1, 1.2, 0.9, 1.1, 1],
-              rotate: [0, 15, -15, 5, 0],
-            } : {}}
-            transition={{
-              duration: 0.6,
-              ease: [0.76, 0, 0.24, 1],
-            }}
-          >
-            <motion.div
-              className="absolute inset-0 bg-purple-400/20"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={isQueueAnimating ? {
-                scale: [1, 3],
-                opacity: [0.5, 0],
-              } : {}}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              style={{
-                borderRadius: "100%",
-                transformOrigin: "center",
-              }}
-            />
-            <motion.div
-              className="absolute inset-0 bg-purple-400/10"
-              initial={{ scale: 0, opacity: 0 }}
-              animate={isQueueAnimating ? {
-                scale: [1, 2],
-                opacity: [0.3, 0],
-              } : {}}
-              transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
-              style={{
-                borderRadius: "100%",
-                transformOrigin: "center",
-              }}
-            />
-            <motion.svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="transform group-hover:translate-x-0.5 transition-transform relative z-10"
-              animate={isQueueAnimating ? {
-                scale: [1, 1.2, 1],
-                rotate: [0, 180, 180],
-              } : {}}
-              transition={{
-                duration: 0.4,
-                ease: "easeOut",
-              }}
-            >
-              <path d="M5 12h14" />
-              <path d="M12 5v14" />
-            </motion.svg>
-          </motion.button>
-        </div>
-      </div>
-    );
-  };
-
-  const MainPageTrackItem = ({ track, index, onClick }) => (
-    <div
-      key={track.id}
-      className="group relative"
-      onMouseEnter={() => setHoveredTrack(track.id)}
-      onMouseLeave={() => setHoveredTrack(null)}
-      onClick={onClick}
-    >
-      <div className="relative aspect-square">
-        <img
-          src={track.album?.images[0]?.url}
-          alt={track.name}
-          className="w-full h-full object-cover rounded-lg"
-        />
-        {hoveredTrack === track.id && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
-            <button className="p-3 bg-[#5B21B6] rounded-full hover:scale-105 transition-transform">
-              {currentTrack?.id === track.id && isPlaying ? (
-                <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+        <div className="w-12 h-12 relative flex-shrink-0">
+          <img
+            src={track.album?.images[0]?.url}
+            alt={track.name}
+            className="w-full h-full object-cover rounded-md shadow-lg transition-all duration-300 group-hover:shadow-xl"
+          />
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <button className="p-2 bg-[#5B21B6] rounded-full hover:scale-105 transition-transform">
+              {isPlaying ? (
+                <svg className="w-4 h-4" fill="white" viewBox="0 0 24 24">
                   <rect x="6" y="4" width="4" height="16" fill="white" />
                   <rect x="14" y="4" width="4" height="16" fill="white" />
                 </svg>
               ) : (
-                <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="white" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
               )}
             </button>
           </div>
-        )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <motion.h3 
+            className="font-medium truncate text-white group-hover:text-white/90 transition-colors"
+            initial={{ opacity: 0.9 }}
+            whileHover={{ opacity: 1 }}
+          >
+            {index}. {track.name}
+          </motion.h3>
+          <motion.p 
+            className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors"
+            initial={{ opacity: 0.7 }}
+            whileHover={{ opacity: 1 }}
+          >
+            {track.artists.map(a => a.name).join(', ')}
+          </motion.p>
+        </div>
+        <div className="flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
+          <motion.button
+            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsQueueAnimating(true);
+              handleAddToQueue(track, e);
+              setTimeout(() => setIsQueueAnimating(false), 1000);
+            }}
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+            </svg>
+          </motion.button>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const MainPageTrackItem = ({ track, index, onClick }) => (
+    <motion.div
+      key={track.id}
+      className="group relative"
+      onClick={onClick}
+      whileHover={{ scale: 1.03 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+    >
+      <div className="relative aspect-square">
+        <img
+          src={track.album?.images[0]?.url}
+          alt={track.name}
+          className="w-full h-full object-cover rounded-lg shadow-lg transition-all duration-300 group-hover:shadow-xl"
+        />
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <button className="p-3 bg-[#5B21B6] rounded-full hover:scale-105 transition-transform">
+            {currentTrack?.id === track.id && isPlaying ? (
+              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                <rect x="6" y="4" width="4" height="16" fill="white" />
+                <rect x="14" y="4" width="4" height="16" fill="white" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
-      <div className="mt-2">
-        <h3 className="font-medium truncate">{index}. {track.name}</h3>
-        <p className="text-sm text-gray-400 truncate">
+      <motion.div 
+        className="mt-2"
+        initial={{ opacity: 0.8 }}
+        whileHover={{ opacity: 1 }}
+      >
+        <h3 className="font-medium truncate text-white group-hover:text-white/90 transition-colors">{index}. {track.name}</h3>
+        <p className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
           {track.artists.map(a => a.name).join(', ')}
         </p>
+      </motion.div>
+    </motion.div>
+  );
+
+  const PlaylistItem = ({ playlist, onClick, isSelected }) => (
+    <button
+      key={playlist.id}
+      onClick={onClick}
+      className={`group relative w-36 h-12 rounded-xl overflow-hidden transition-all hover:scale-105 ${
+        isSelected 
+          ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-black' 
+          : ''
+      }`}
+      title={playlist.name}
+    >
+      <div className="absolute inset-0 flex items-center">
+        <div className="relative w-12 h-12">
+          <img 
+            src={playlist.images[0]?.url || '/default-playlist.png'} 
+            alt=""
+            className="w-12 h-12 object-cover"
+          />
+        </div>
+        <div className="flex-1 px-2 text-left truncate">
+          <p className="text-xs font-medium text-white truncate">{playlist.name}</p>
+          <p className="text-[10px] text-gray-400 truncate">
+            {playlist.tracks?.total || 0} tracks
+          </p>
+        </div>
       </div>
-    </div>
+    </button>
   );
 
   if (loading) {
@@ -1355,30 +1507,12 @@ const Home = () => {
                 className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto px-2 pb-2 pt-2 -mx-2 -mb-2 -mt-2"
               >
                 {playlists.map((playlist, index) => (
-                  <button
+                  <PlaylistItem
                     key={`${playlist.id}-${index}`}
+                    playlist={playlist}
                     onClick={() => handlePlaylistSelect(playlist)}
-                    className={`group relative w-40 h-12 rounded-xl overflow-hidden transition-all hover:scale-105 ${
-                      selectedPlaylist?.id === playlist.id 
-                        ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-black' 
-                        : ''
-                    }`}
-                    title={playlist.name}
-                  >
-                    <div className="absolute inset-0 flex items-center">
-                      <img 
-                        src={playlist.images[0]?.url || '/default-playlist.png'} 
-                        alt=""
-                        className="w-12 h-12 object-cover"
-                      />
-                      <div className="flex-1 px-2 text-left truncate">
-                        <p className="text-xs font-medium text-white truncate antialiased">{playlist.name}</p>
-                        <p className="text-[10px] text-gray-400 truncate antialiased">
-                          {playlist.tracks?.total || 0} tracks
-                        </p>
-                      </div>
-                    </div>
-                  </button>
+                    isSelected={selectedPlaylist?.id === playlist.id}
+                  />
                 ))}
               </div>
             </div>

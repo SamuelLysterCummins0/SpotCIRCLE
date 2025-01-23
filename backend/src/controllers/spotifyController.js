@@ -351,8 +351,30 @@ exports.getUserPlaylists = async (req, res) => {
   try {
     const { access_token } = req.user;
     req.spotifyApi.setAccessToken(access_token);
-    const data = await req.spotifyApi.getUserPlaylists();
-    res.json(data.body.items);
+    const data = await req.spotifyApi.getUserPlaylists({ limit: 50 });
+    
+    // Get full playlist data for each playlist including tracks
+    const playlists = await Promise.all(data.body.items.map(async (playlist) => {
+      const playlistData = await req.spotifyApi.getPlaylist(playlist.id);
+      const tracks = playlistData.body.tracks.items;
+      
+      // Sort tracks by added_at to get the most recent one
+      const sortedTracks = tracks.sort((a, b) => {
+        const dateA = new Date(a.added_at);
+        const dateB = new Date(b.added_at);
+        return dateB - dateA;
+      });
+      
+      return {
+        ...playlistData.body,
+        tracks: {
+          ...playlistData.body.tracks,
+          items: sortedTracks
+        }
+      };
+    }));
+    
+    res.json(playlists);
   } catch (error) {
     console.error('Error fetching playlists:', error);
     res.status(error.statusCode || 500).json({
@@ -367,9 +389,33 @@ exports.getPlaylistTracks = async (req, res) => {
     const { access_token } = req.user;
     const { playlistId } = req.params;
     req.spotifyApi.setAccessToken(access_token);
-    const data = await req.spotifyApi.getPlaylistTracks(playlistId);
-    const tracks = data.body.items.map(item => item.track);
-    res.json(tracks);
+    
+    // Get all tracks with pagination
+    let allTracks = [];
+    let offset = 0;
+    const limit = 100; // Spotify's max limit per request
+    
+    while (true) {
+      const data = await req.spotifyApi.getPlaylistTracks(playlistId, { offset, limit });
+      const tracks = data.body.items
+        .filter(item => item && item.track) // Filter out null items and ensure track exists
+        .map(item => item.track)
+        .filter(track => 
+          track && 
+          track.uri && 
+          typeof track.uri === 'string' && 
+          !track.uri.includes('spotify:local') && 
+          track.uri.startsWith('spotify:track:')
+        );
+      
+      allTracks = [...allTracks, ...tracks];
+      
+      if (data.body.items.length < limit) break; // No more tracks to fetch
+      offset += limit;
+    }
+
+    console.log(`Successfully loaded ${allTracks.length} valid tracks from playlist`);
+    res.json(allTracks);
   } catch (error) {
     console.error('Error fetching playlist tracks:', error);
     res.status(error.statusCode || 500).json({

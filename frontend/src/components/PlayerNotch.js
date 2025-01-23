@@ -394,9 +394,9 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                     height: isExpanded ? '80px' : '40px',
                   }}
                   transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-                  className="rounded-lg shadow-md flex-shrink-0"
+                  className={`rounded-lg shadow-md flex-shrink-0 ${!isExpanded && '-mt-1.47 -ml-1.5'}`}
                 />
-                <div className="min-w-0 flex-1">
+                <div className={`min-w-0 flex-1 ${!isExpanded && '-mt-2'}`}>
                   <motion.h3 
                     className="font-medium truncate text-white mb-1"
                     animate={{
@@ -445,7 +445,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                   </div>
                 </div>
               </div>
-
               <motion.div 
                 className="flex items-center gap-2"
                 animate={{
