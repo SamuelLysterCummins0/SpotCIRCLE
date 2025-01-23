@@ -34,6 +34,12 @@ const timeRanges = [
   { id: TimeRanges.LONG, label: TimeRangeLabels.long_term }
 ];
 
+const decodeHtmlEntities = (str) => {
+  const textArea = document.createElement('textarea');
+  textArea.innerHTML = str;
+  return textArea.value;
+};
+
 const Home = () => {
   const navigate = useNavigate();
   const [tracks, setTracks] = useState([]);
@@ -59,7 +65,104 @@ const Home = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
 
-  
+  // Cache track data to prevent unnecessary re-fetches
+  const trackCache = useRef(new Map());
+  const albumCache = useRef(new Map());
+
+  // Memoize album processing
+  const processTopAlbums = useCallback((tracks) => {
+    if (!tracks || !Array.isArray(tracks)) return [];
+    
+    const albumsMap = new Map();
+    tracks.forEach(track => {
+      if (!track?.album?.id) return;
+      
+      const albumId = track.album.id;
+      const cachedAlbum = albumCache.current.get(albumId);
+      
+      if (cachedAlbum) {
+        albumsMap.set(albumId, {
+          ...cachedAlbum,
+          playCount: (albumsMap.get(albumId)?.playCount || 0) + 1
+        });
+      } else {
+        const albumData = {
+          ...track.album,
+          playCount: 1,
+          artists: track.artists
+        };
+        albumCache.current.set(albumId, albumData);
+        albumsMap.set(albumId, albumData);
+      }
+    });
+
+    return Array.from(albumsMap.values())
+      .sort((a, b) => b.playCount - a.playCount)
+      .slice(0, 14);
+  }, []);
+
+  // Optimize track data fetching
+  const fetchAllData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Check cache first
+      const cacheKey = `${selectedTimeRange}_data`;
+      const cachedData = trackCache.current.get(cacheKey);
+      
+      if (cachedData) {
+        const { tracks, artists, timestamp } = cachedData;
+        const now = Date.now();
+        // Use cache if it's less than 5 minutes old
+        if (now - timestamp < 5 * 60 * 1000) {
+          setTopTracks(tracks);
+          setTopArtists(artists);
+          setTopAlbums(processTopAlbums(tracks));
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Fetch fresh data if cache is stale or missing
+      const [topTracksData, topArtistsData] = await Promise.all([
+        fetchData(`/api/tracks/top?time_range=${selectedTimeRange}&limit=28`),
+        fetchData(`/api/artists/top?time_range=${selectedTimeRange}&limit=21`)
+      ]);
+
+      if (topTracksData && Array.isArray(topTracksData)) {
+        setTopTracks(topTracksData);
+        const processedAlbums = processTopAlbums(topTracksData);
+        setTopAlbums(processedAlbums);
+        
+        // Update cache
+        trackCache.current.set(cacheKey, {
+          tracks: topTracksData,
+          artists: topArtistsData,
+          timestamp: Date.now()
+        });
+      }
+      
+      if (topArtistsData && Array.isArray(topArtistsData)) {
+        setTopArtists(topArtistsData);
+      }
+
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError('Failed to load music data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedTimeRange, processTopAlbums]);
+
+  // Clean up caches when component unmounts
+  useEffect(() => {
+    return () => {
+      trackCache.current.clear();
+      albumCache.current.clear();
+    };
+  }, []);
+
   // Parallax effect values
   const backgroundY = useTransform(scrollY, [0, 500], [0, 150]);
   const opacity = useTransform(scrollY, [0, 200], [1, 0]);
@@ -110,67 +213,6 @@ const Home = () => {
       throw err;
     }
   };
-
-  
-
-  const fetchAllData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('Fetching data with time range:', selectedTimeRange);
-      
-      // Fetch tracks and artists with their respective limits
-      const [topTracksData, topArtistsData] = await Promise.all([
-        fetchData(`/api/tracks/top?time_range=${selectedTimeRange}&limit=28`),
-        fetchData(`/api/artists/top?time_range=${selectedTimeRange}&limit=21`)
-      ]);
-  
-      if (topTracksData) {
-        console.log('Received tracks:', topTracksData.length);
-        setTopTracks(topTracksData);
-      }
-      
-      if (topArtistsData) {
-        console.log('Received artists:', topArtistsData.length);
-        setTopArtists(topArtistsData);
-      }
-  
-      // Generate top albums from the tracks (limited to 14)
-      const albumsMap = new Map();
-      if (topTracksData) {
-        topTracksData.forEach(track => {
-          if (track.album) {
-            const albumId = track.album.id;
-            if (!albumsMap.has(albumId)) {
-              albumsMap.set(albumId, {
-                ...track.album,
-                playCount: 1,
-                artists: track.artists
-              });
-            } else {
-              const album = albumsMap.get(albumId);
-              albumsMap.set(albumId, {
-                ...album,
-                playCount: album.playCount + 1
-              });
-            }
-          }
-        });
-      }
-  
-      const topAlbumsData = Array.from(albumsMap.values())
-        .sort((a, b) => b.playCount - a.playCount)
-        .slice(0, 14);  // Limit albums to 14
-  
-      setTopAlbums(topAlbumsData);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Failed to load music data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedTimeRange]);
 
   useEffect(() => {
     const fetchPlaylists = async () => {
@@ -857,8 +899,8 @@ const Home = () => {
                         <div className="font-medium text-base capitalize drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{selectedPlaylist?.public ? 'Public' : 'Private'}</div>
                       </div>
                       <div className="space-y-1">
-                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Added On</div>
-                        <div className="font-medium text-base whitespace-nowrap drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{new Date(selectedPlaylist?.tracks?.items?.[0]?.added_at).toLocaleDateString()}</div>
+                        <div className="text-sm uppercase tracking-wider text-purple-300/70">Description</div>
+                        <div className="font-medium text-base break-words drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{decodeHtmlEntities(selectedPlaylist?.description) || 'No description'}</div>
                       </div>
                     </div>
                   </div>
@@ -891,7 +933,7 @@ const Home = () => {
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                </svg>
+              </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{trackCount}</span>
               <span className="text-xs uppercase tracking-widest text-purple-400/70 mt-1">Tracks</span>

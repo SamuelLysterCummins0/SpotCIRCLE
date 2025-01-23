@@ -7,13 +7,18 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [isChangingTrack, setIsChangingTrack] = useState(false);
-  const [dominantColors, setDominantColors] = useState(['#1a1a2e', '#2a2a4e']);
+  const [dominantColors, setDominantColors] = useState(['#1a1a2e', '#2a2a4e', '#3a3a6e', '#4a4a8e']);
   const [queueTracks, setQueueTracks] = useState([]);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [volume, setVolume] = useState(100);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const [textColors, setTextColors] = useState({
+    primary: 'white',
+    secondary: 'rgba(255, 255, 255, 0.7)',
+    button: 'white'
+  });
   const containerRef = useRef(null);
   const progressBarRef = useRef(null);
   const volumeBarRef = useRef(null);
@@ -29,6 +34,24 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
       clearTimeout(timeout);
       timeout = setTimeout(later, wait);
     };
+  };
+
+  const calculateLuminance = (r, g, b) => {
+    const rs = r / 255;
+    const gs = g / 255;
+    const bs = b / 255;
+    
+    const r1 = rs <= 0.03928 ? rs / 12.92 : Math.pow((rs + 0.055) / 1.055, 2.4);
+    const g1 = gs <= 0.03928 ? gs / 12.92 : Math.pow((gs + 0.055) / 1.055, 2.4);
+    const b1 = bs <= 0.03928 ? bs / 12.92 : Math.pow((bs + 0.055) / 1.055, 2.4);
+    
+    return 0.2126 * r1 + 0.7152 * g1 + 0.0722 * b1;
+  };
+
+  const shouldUseWhiteText = (backgroundColor) => {
+    const rgb = backgroundColor.match(/\d+/g).map(Number);
+    const luminance = calculateLuminance(rgb[0], rgb[1], rgb[2]);
+    return luminance < 0.5;
   };
 
   const debouncedUpdateQueue = useCallback(
@@ -76,6 +99,19 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
       debouncedUpdateQueue();
     }
   }, [isPlaying, track, debouncedUpdateQueue]);
+
+  useEffect(() => {
+    if (dominantColors.length > 0) {
+      const primaryColor = dominantColors[0];
+      const useWhite = shouldUseWhiteText(primaryColor);
+      
+      setTextColors({
+        primary: useWhite ? 'white' : 'rgba(0, 0, 0, 0.87)',
+        secondary: useWhite ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.75)',
+        button: useWhite ? 'white' : 'rgba(0, 0, 0, 0.87)'
+      });
+    }
+  }, [dominantColors]);
 
   const handleTrackChange = async (action) => {
     if (isChangingTrack) return;
@@ -253,34 +289,256 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   };
 
   const extractColors = useCallback((imageUrl) => {
-    if (!imageUrl) return;
-    
+    if (!imageUrl) {
+      setDominantColors(['#1a1a2e', '#2a2a4e', '#3a3a6e', '#4a4a8e']);
+      return;
+    }
+
     const img = new Image();
-    img.crossOrigin = "Anonymous";
-    
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = Math.min(img.width, 100);  
-      canvas.height = Math.min(img.height, 100);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const colors = [];
-      
-      const step = Math.max(4 * 100, Math.floor(imageData.length / 50));
-      for (let i = 0; i < imageData.length; i += step) {
-        const r = imageData[i];
-        const g = imageData[i + 1];
-        const b = imageData[i + 2];
-        colors.push(`rgb(${r}, ${g}, ${b})`);
-      }
-      
-      setDominantColors(colors.slice(0, 2));
+    img.crossOrigin = 'Anonymous';
+
+    img.onerror = () => {
+      setDominantColors(['#1a1a2e', '#2a2a4e', '#3a3a6e', '#4a4a8e']);
     };
-    
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        canvas.width = Math.min(img.width, 64);
+        canvas.height = Math.min(img.height, 64);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const colorCounts = new Map();
+        let totalPixels = 0;
+        let colorfulPixels = 0;
+        let totalR = 0, totalG = 0, totalB = 0;
+
+        // First pass: collect colors and calculate statistics
+        for (let i = 0; i < imageData.length; i += 4) {
+          const r = imageData[i];
+          const g = imageData[i + 1];
+          const b = imageData[i + 2];
+          const a = imageData[i + 3];
+
+          if (a < 128) continue;
+
+          totalPixels++;
+          totalR += r;
+          totalG += g;
+          totalB += b;
+
+          // Check if pixel is colorful
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          const diff = max - min;
+          const sat = max === 0 ? 0 : diff / max;
+          const isGrayish = sat < 0.15;
+          
+          if (!isGrayish) {
+            colorfulPixels++;
+          }
+
+          // Skip very light or very dark colors unless they're dominant
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          if ((brightness < 30 || brightness > 225) && sat < 0.15) continue;
+
+          // Quantize colors
+          const key = `${Math.round(r/8)*8},${Math.round(g/8)*8},${Math.round(b/8)*8}`;
+          colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
+        }
+
+        // Calculate if image is mostly colorful or grayscale
+        const isColorfulImage = colorfulPixels / totalPixels > 0.2;
+
+        // Convert to array and sort by frequency
+        const sortedColors = Array.from(colorCounts.entries())
+          .map(([key, count]) => {
+            const [r, g, b] = key.split(',').map(Number);
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const sat = max === 0 ? 0 : (max - min) / max;
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+            
+            // Calculate score based on color properties
+            let score = count;
+            if (isColorfulImage) {
+              // Boost saturated colors in colorful images
+              score *= (1 + sat);
+              // Penalize very light/dark colors unless they're very common
+              if (brightness < 30 || brightness > 225) {
+                score *= 0.7;
+              }
+            } else {
+              // In grayscale images, prioritize good contrast
+              score *= (1 - Math.abs(brightness - 128) / 128);
+            }
+
+            return { r, g, b, count, score, sat, brightness };
+          })
+          .sort((a, b) => b.score - a.score);
+
+        // Get average color for mixing
+        const avgR = Math.round(totalR / totalPixels);
+        const avgG = Math.round(totalG / totalPixels);
+        const avgB = Math.round(totalB / totalPixels);
+
+        // Get top colors ensuring good contrast
+        const finalColors = [];
+        for (const color of sortedColors) {
+          if (finalColors.length >= 4) break;
+
+          // Mix with average color if the saturation is too low
+          let finalR = color.r, finalG = color.g, finalB = color.b;
+          if (color.sat < 0.15 && isColorfulImage) {
+            const mixFactor = 0.7;
+            finalR = Math.round(color.r * mixFactor + avgR * (1 - mixFactor));
+            finalG = Math.round(color.g * mixFactor + avgG * (1 - mixFactor));
+            finalB = Math.round(color.b * mixFactor + avgB * (1 - mixFactor));
+          }
+
+          // Check if this color is different enough from existing colors
+          const isDifferent = finalColors.every(existing => {
+            const deltaR = Math.abs(existing.r - finalR);
+            const deltaG = Math.abs(existing.g - finalG);
+            const deltaB = Math.abs(existing.b - finalB);
+            return (deltaR + deltaG + deltaB) > 60;
+          });
+
+          if (isDifferent) {
+            finalColors.push({ r: finalR, g: finalG, b: finalB });
+          }
+        }
+
+        // If we don't have enough colors, generate variations
+        while (finalColors.length < 4) {
+          const baseColor = finalColors[0] || { r: 26, g: 26, b: 46 };
+          const variation = finalColors.length % 2 === 0 ? 1.2 : 0.8;
+          finalColors.push({
+            r: Math.min(255, Math.round(baseColor.r * variation)),
+            g: Math.min(255, Math.round(baseColor.g * variation)),
+            b: Math.min(255, Math.round(baseColor.b * variation))
+          });
+        }
+
+        const newColors = finalColors.map(c => `rgb(${c.r}, ${c.g}, ${c.b})`);
+        setDominantColors(newColors);
+      } catch (error) {
+        setDominantColors(['#1a1a2e', '#2a2a4e', '#3a3a6e', '#4a4a8e']);
+      }
+    };
+
     img.src = imageUrl;
   }, []);
+
+  const rgbToHsl = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      
+      h /= 6;
+    }
+
+    return [h, s, l];
+  };
+
+  // Track reference for memoization
+  const trackRef = useRef(track);
+  const lastImageUrlRef = useRef(null);
+  const extractionTimeoutRef = useRef(null);
+
+  // Memoize track info to prevent unnecessary re-renders
+  const trackInfo = React.useMemo(() => {
+    if (!track) return null;
+    return {
+      name: track.name || '',
+      artist: track.artists?.[0]?.name || '',
+      imageUrl: track.album?.images?.[0]?.url || '',
+      duration: track.duration_ms || 0
+    };
+  }, [track?.uri]); // Only update when track URI changes
+
+  // Optimize color extraction timing
+  useEffect(() => {
+    if (!track?.album?.images?.[0]?.url) return;
+    
+    const imageUrl = track.album.images[0].url;
+    if (imageUrl === lastImageUrlRef.current) return;
+    
+    // Clear any pending extraction
+    if (extractionTimeoutRef.current) {
+      clearTimeout(extractionTimeoutRef.current);
+    }
+
+    // Update reference immediately for fast switching
+    lastImageUrlRef.current = imageUrl;
+    trackRef.current = track;
+
+    // Delay color extraction slightly to prioritize UI update
+    extractionTimeoutRef.current = setTimeout(() => {
+      if (trackRef.current === track) {
+        extractColors(imageUrl);
+      }
+    }, 100);
+
+    return () => {
+      if (extractionTimeoutRef.current) {
+        clearTimeout(extractionTimeoutRef.current);
+      }
+    };
+  }, [track?.uri, extractColors]);
+
+  // Optimize progress updates
+  const updateProgress = useCallback(
+    debounce((newProgress) => {
+      if (trackRef.current === track) {
+        setProgress(newProgress);
+      }
+    }, 50),
+    [track?.uri]
+  );
+
+  // Optimize progress interval
+  useEffect(() => {
+    let interval;
+    if (isPlaying && !isDragging && track) {
+      interval = setInterval(() => {
+        if (trackRef.current === track) {
+          setProgress(prev => {
+            if (prev >= duration) {
+              clearInterval(interval);
+              return prev;
+            }
+            return prev + 1000;
+          });
+        }
+      }, 1000);
+    }
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isPlaying, isDragging, duration, track?.uri]);
 
   useEffect(() => {
     if (track?.album?.images[0]?.url) {
@@ -346,10 +604,30 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
           setScrollPosition(0);
         }}
         style={{
-          background: `linear-gradient(135deg, ${dominantColors.join(', ')})`
+          '--gradient-colors': dominantColors.length > 0 
+            ? `135deg, ${[...dominantColors, dominantColors[0]].join(', ')}`
+            : '135deg, #1a1a2e, #2a2a4e, #3a3a6e, #4a4a8e',
+          outline: '4px solid rgba(192, 132, 252, 0.6)',
+          outlineOffset: '0px'
         }}
-        className="backdrop-blur rounded-2xl shadow-xl overflow-hidden border-[3px] border-purple-500/30"
+        className={`backdrop-blur rounded-2xl shadow-xl overflow-hidden ${dominantColors.length > 0 ? 'animated-gradient' : 'static-gradient'}`}
       >
+        <style jsx>{`
+          .animated-gradient {
+            background: linear-gradient(var(--gradient-colors));
+            background-size: 250% 250%;
+            animation: gradientFlow 8s ease infinite;
+          }
+          .static-gradient {
+            background: linear-gradient(var(--gradient-colors));
+            background-size: 250% 250%;
+          }
+          @keyframes gradientFlow {
+            0% { background-position: 0% 0%; }
+            50% { background-position: 100% 100%; }
+            100% { background-position: 0% 0%; }
+          }
+        `}</style>
         <motion.div
           style={{ y: isExpanded ? -scrollPosition : 0 }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -403,6 +681,10 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       fontSize: isExpanded ? '1.25rem' : '1rem',
                       marginBottom: isExpanded ? '0.25rem' : '0.5rem'
                     }}
+                    style={{
+                      color: textColors.primary,
+                      fontWeight: textColors.primary === 'white' ? '600' : '700'
+                    }}
                   >
                     {track.name}
                   </motion.h3>
@@ -433,11 +715,17 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
-                      <p className={`text-purple-400 text-sm truncate hover:text-purple-300 transition-colors flex-1 pr-4 ${!isExpanded && '-mt-2.5'}`}>
+                      <p className={`text-purple-400 text-sm truncate hover:text-purple-300 transition-colors flex-1 pr-4 ${!isExpanded && '-mt-2.5'}`} style={{ 
+                        color: textColors.secondary,
+                        fontWeight: textColors.primary === 'white' ? '400' : '500'
+                      }}>
                         {track.artists?.map(a => a.name).join(', ')}
                       </p>
                       {isExpanded && (
-                        <p className="text-purple-400 text-sm whitespace-nowrap">
+                        <p className="text-purple-400 text-sm whitespace-nowrap" style={{ 
+                          color: textColors.secondary,
+                          fontWeight: textColors.primary === 'white' ? '400' : '500'
+                        }}>
                           {formatTime(progress)} / {formatTime(duration)}
                         </p>
                       )}
@@ -455,7 +743,10 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
               >
                 <button 
                   onClick={handlePrevious}
-                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors text-purple-400 hover:text-purple-300"
+                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors" style={{ 
+                    color: textColors.button,
+                    fontWeight: textColors.primary === 'white' ? '400' : '500'
+                  }}
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M8.445 14.832A1 1 0 0010 14v-2.798l5.445 3.63A1 1 0 0017 14V6a1 1 0 00-1.555-.832L10 8.798V6a1 1 0 00-1.555-.832l-6 4a1 1 0 000 1.664l6 4z" />
@@ -463,7 +754,10 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                 </button>
                 <button 
                   onClick={onPlayPause}
-                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors text-purple-400 hover:text-purple-300"
+                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors" style={{ 
+                    color: textColors.button,
+                    fontWeight: textColors.primary === 'white' ? '400' : '500'
+                  }}
                 >
                   {isPlaying ? (
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -477,7 +771,10 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                 </button>
                 <button 
                   onClick={handleNext}
-                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors text-purple-400 hover:text-purple-300"
+                  className="p-1.5 hover:bg-purple-500/10 rounded-full transition-colors" style={{ 
+                    color: textColors.button,
+                    fontWeight: textColors.primary === 'white' ? '400' : '500'
+                  }}
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M4.555 5.168A1 1 0 003 6v8a1 1 0 001.555.832L10 11.202V14a1 1 0 001.555.832l6-4a1 1 0 000-1.664l-6-4A1 1 0 0010 6v2.798L4.555 5.168z" />
@@ -543,17 +840,29 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                   {/* Track info and queue */}
                   <div className="flex-1">
                     <div>
-                      <h3 className="font-bold text-xl truncate text-white">{track.name}</h3>
-                      <p className="text-purple-400 text-base truncate hover:text-purple-300 transition-colors">
+                      <h3 className="font-bold text-xl truncate text-white" style={{ 
+                        color: textColors.primary,
+                        fontWeight: textColors.primary === 'white' ? '600' : '700'
+                      }}>{track.name}</h3>
+                      <p className="text-purple-400 text-base truncate hover:text-purple-300 transition-colors" style={{ 
+                        color: textColors.secondary,
+                        fontWeight: textColors.primary === 'white' ? '400' : '500'
+                      }}>
                         {track.artists?.map(a => a.name).join(', ')}
                       </p>
-                      <p className="text-purple-500/50 text-sm mt-2">
+                      <p className="text-purple-500/50 text-sm mt-2" style={{ 
+                        color: textColors.secondary,
+                        fontWeight: textColors.primary === 'white' ? '400' : '500'
+                      }}>
                         {track.album?.name}
                       </p>
                     </div>
 
                     <div className="mt-4 overflow-y-auto">
-                      <h4 className="text-sm font-medium text-purple-400 mb-2">Next in queue:</h4>
+                      <h4 className="text-sm font-medium text-purple-400 mb-2" style={{ 
+                        color: textColors.secondary,
+                        fontWeight: textColors.primary === 'white' ? '400' : '500'
+                      }}>Next in queue:</h4>
                       <div className="space-y-2">
                         {queueTracks.slice(0, 5).map((queueTrack, index) => (
                           <div 
@@ -568,8 +877,14 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                               />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm truncate text-white">{queueTrack.name}</p>
-                              <p className="text-xs text-purple-400 truncate">
+                              <p className="text-sm truncate text-white" style={{ 
+                                color: textColors.primary,
+                                fontWeight: textColors.primary === 'white' ? '600' : '700'
+                              }}>{queueTrack.name}</p>
+                              <p className="text-xs text-purple-400 truncate" style={{ 
+                                color: textColors.secondary,
+                                fontWeight: textColors.primary === 'white' ? '400' : '500'
+                              }}>
                                 {queueTrack.artists?.map(a => a.name).join(', ')}
                               </p>
                             </div>
