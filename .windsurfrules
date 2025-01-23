@@ -4,3 +4,5 @@
 4. Try not to mess up the structure of large code files which could cause erros and double check that you havent made any mistakes.
 5. Only do changes to UI that I ask and not change the UI of anything else or the functionality.
 6. Dont change the functioanlity of of the UI when im asking for just UI changes that dont need new functioanlity.
+7. When making structural features such as e.g JSX structure double check that no mistakes were made. 
+8. Make sure to not make any duplicates.

@@ -612,7 +612,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
         }}
         className={`backdrop-blur rounded-2xl shadow-xl overflow-hidden ${dominantColors.length > 0 ? 'animated-gradient' : 'static-gradient'}`}
       >
-        <style jsx>{`
+        <style>{`
           .animated-gradient {
             background: linear-gradient(var(--gradient-colors));
             background-size: 250% 250%;

@@ -61,6 +61,8 @@ const Home = () => {
   const [isPlaylistTransition, setIsPlaylistTransition] = useState(false);
   const [showTimeRangeDropdown, setShowTimeRangeDropdown] = useState(false);
   const [deviceId, setDeviceId] = useState(null);
+  const [trackSortOrder, setTrackSortOrder] = useState('default');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
   const { scrollY } = useScroll();
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
@@ -956,9 +958,56 @@ const Home = () => {
         </div>
         <div className="w-full h-[2px] mt-4 bg-gradient-to-r from-transparent via-purple-500/30 to-transparent"></div>
 
+        {/* Sort Dropdown */}
+        <div className="flex justify-end px-4 mt-4">
+          <div className="relative sort-dropdown">
+            <button
+              onClick={() => setShowSortDropdown(!showSortDropdown)}
+              className="group relative px-4 py-2 overflow-hidden rounded-lg bg-gradient-to-br from-purple-900/40 to-black/40 hover:from-purple-800/40 hover:to-purple-900/40 transition-colors duration-300"
+            >
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-purple-500/30 to-transparent transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></div>
+              </div>
+              <div className="relative flex items-center gap-2">
+                {sortOptions.find(opt => opt.id === trackSortOrder)?.icon}
+                <span className="text-sm font-medium">
+                  {sortOptions.find(opt => opt.id === trackSortOrder)?.label}
+                </span>
+                <svg className={`w-4 h-4 transition-transform duration-200 ${showSortDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+              <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-purple-500/30 to-transparent transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></div>
+            </button>
+
+            {/* Dropdown Menu */}
+            {showSortDropdown && (
+              <div className="absolute right-0 mt-2 w-48 rounded-lg bg-gradient-to-br from-purple-900/95 to-black/95 backdrop-blur-sm shadow-xl z-50 overflow-hidden">
+                <div className="py-1">
+                  {sortOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => {
+                        setTrackSortOrder(option.id);
+                        setShowSortDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2 text-sm flex items-center gap-2 hover:bg-purple-700/20 transition-colors duration-200 ${
+                        trackSortOrder === option.id ? 'bg-purple-700/30 text-purple-300' : 'text-gray-200'
+                      }`}
+                    >
+                      {option.icon}
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Tracks List */}
-        <div className="space-y-2 pb-24">
-          {playlistTracks.map((track, index) => (
+        <div className="space-y-2 pb-24 mt-4">
+          {sortTracks(playlistTracks, trackSortOrder).map((track, index) => (
             <TrackItem 
               key={`${track.id}-${index}`}
               track={track}
@@ -972,6 +1021,71 @@ const Home = () => {
     </motion.div>
   );
 };
+
+  const sortOptions = [
+    { id: 'default', label: 'Default', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    )},
+    { id: 'recent', label: 'Recently Added', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    )},
+    { id: 'name', label: 'Name', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+      </svg>
+    )},
+    { id: 'artist', label: 'Artist', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    )},
+    { id: 'album', label: 'Album', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+    )},
+    { id: 'duration', label: 'Duration', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    )}
+  ];
+
+  const sortTracks = useCallback((tracks, order) => {
+    if (!tracks) return [];
+    
+    const sortedTracks = [...tracks];
+    switch (order) {
+      case 'recent':
+        return sortedTracks.sort((a, b) => new Date(b.added_at || 0) - new Date(a.added_at || 0));
+      case 'name':
+        return sortedTracks.sort((a, b) => a.name.localeCompare(b.name));
+      case 'artist':
+        return sortedTracks.sort((a, b) => a.artists[0].name.localeCompare(b.artists[0].name));
+      case 'album':
+        return sortedTracks.sort((a, b) => a.album.name.localeCompare(b.album.name));
+      case 'duration':
+        return sortedTracks.sort((a, b) => a.duration_ms - b.duration_ms);
+      default:
+        return sortedTracks;
+    }
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showSortDropdown && !event.target.closest('.sort-dropdown')) {
+        setShowSortDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSortDropdown]);
 
   const renderTrackList = (tracks, title) => {
     const isExpanded = expandedSection === 'tracks';
@@ -1372,7 +1486,7 @@ const Home = () => {
               setTimeout(() => setIsQueueAnimating(false), 1000);
             }}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
             </svg>
           </motion.button>
