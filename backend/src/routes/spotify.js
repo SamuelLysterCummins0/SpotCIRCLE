@@ -4,6 +4,9 @@ const axios = require('axios');
 const spotifyController = require('../controllers/spotifyController');
 const { authenticateToken } = require('../middleware/auth');
 
+// Debug routes (before auth middleware)
+router.get('/debug/cache', spotifyController.debugCache);
+
 // Apply authentication middleware to all routes
 router.use(authenticateToken);
 

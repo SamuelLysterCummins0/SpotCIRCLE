@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
-import { usePlayerContext } from '../contexts/PlayerContext';
+import { usePlayerContext } from '../../contexts/PlayerContext';
 
 const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [isExpanded, setIsExpanded] = useState(false);

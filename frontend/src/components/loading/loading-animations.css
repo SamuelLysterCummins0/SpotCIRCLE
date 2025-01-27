@@ -1,0 +1,38 @@
+@keyframes gradient-move {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes gradient-move-slow {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+}
+
+@keyframes gradient-move-fast {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(540deg);
+  }
+}
+
+.moving-gradient {
+  animation: gradient-move 20s linear infinite;
+}
+
+.moving-gradient-slow {
+  animation: gradient-move-slow 30s linear infinite;
+}
+
+.moving-gradient-fast {
+  animation: gradient-move-fast 15s linear infinite;
+}

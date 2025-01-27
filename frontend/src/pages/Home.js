@@ -7,12 +7,14 @@ import React, {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
-import PlayerNotch from '../components/PlayerNotch';
-import SpotifyPlayer from '../components/SpotifyPlayer';
+import PlayerNotch from '../components/player/PlayerNotch';
+import SpotifyPlayer from '../components/player/SpotifyPlayer';
+import LoadingScreen from '../components/loading/LoadingScreen';
 import axios from 'axios';
 import api from '../utils/api';
 import toast, { Toaster } from 'react-hot-toast';
 import { usePlayerContext } from '../contexts/PlayerContext';
+import '../styles/playlist-container.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -49,6 +51,8 @@ const Home = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [queue, setQueue] = useState([]);
   const [selectedTimeRange, setSelectedTimeRange] = useState(TimeRanges.SHORT);
   const [expandedSection, setExpandedSection] = useState(null);
@@ -56,6 +60,11 @@ const Home = () => {
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const { currentTrack, updateCurrentTrack, setIsPlaying: setPlayerIsPlaying } = usePlayerContext();
   const [playlistTracks, setPlaylistTracks] = useState([]);
+  const [playlistTotal, setPlaylistTotal] = useState(0);
+  const [playlistOffset, setPlaylistOffset] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [showPlaylistView, setShowPlaylistView] = useState(false);
   const [animatingPlaylist, setAnimatingPlaylist] = useState(null);
   const [isPlaylistTransition, setIsPlaylistTransition] = useState(false);
@@ -66,10 +75,15 @@ const Home = () => {
   const { scrollY } = useScroll();
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
+  const [containerHeight, setContainerHeight] = useState(0);
 
   // Cache track data to prevent unnecessary re-fetches
   const trackCache = useRef(new Map());
   const albumCache = useRef(new Map());
+  const playlistContainerRef = useRef(null);
+  const loadingRef = useRef(null); // Add ref for loading element
+  const loadingTimeoutRef = useRef(null);
+  const lastVisibleTrackRef = useRef(null);
 
   // Memoize album processing
   const processTopAlbums = useCallback((tracks) => {
@@ -238,38 +252,127 @@ const Home = () => {
     const loadPlaylistTracks = async () => {
       if (!selectedPlaylist) return;
       
+      // Reset states when selecting a new playlist
+      setPlaylistTracks([]);
+      setPlaylistOffset(0);
+      setPlaylistTotal(0);
+      setHasMore(true);
+      setIsLoadingMore(false);
+      setContainerHeight(0);
+      
       try {
-        const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`);
-        const tracks = response.data;
+        const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`, {
+          params: {
+            offset: 0,
+            limit: 50 // Initial load of 50 tracks
+          }
+        });
+        
+        const { tracks, total, hasMore } = response.data;
         
         if (!Array.isArray(tracks)) {
           console.error('Expected tracks array but got:', typeof tracks);
-          setPlaylistTracks([]);
           return;
         }
 
-        // Additional safety check for track properties
-        const validTracks = tracks.filter(track => 
-          track && 
-          track.uri && 
-          track.name && 
-          track.artists && 
-          Array.isArray(track.artists) && 
-          track.album && 
-          track.album.images && 
-          Array.isArray(track.album.images)
-        );
-
-        console.log(`Loaded ${validTracks.length} valid tracks from playlist`);
-        setPlaylistTracks(validTracks);
+        setPlaylistTracks(tracks);
+        setPlaylistTotal(total);
+        setPlaylistOffset(tracks.length);
+        setHasMore(hasMore);
+        
+        // Set initial container height
+        if (playlistContainerRef.current) {
+          setContainerHeight(playlistContainerRef.current.scrollHeight);
+        }
       } catch (error) {
         console.error('Error loading playlist tracks:', error);
-        setPlaylistTracks([]);
+        if (error.response?.status === 429 && !isRetrying) {
+          setIsRetrying(true);
+          const retryAfter = error.response.headers['retry-after'] || 3;
+          loadingTimeoutRef.current = setTimeout(() => {
+            setIsRetrying(false);
+            loadPlaylistTracks();
+          }, retryAfter * 1000);
+        }
       }
     };
   
     loadPlaylistTracks();
+    
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
   }, [selectedPlaylist]);
+
+  const loadMoreTracks = useCallback(async () => {
+    if (!selectedPlaylist || isLoadingMore || !hasMore || isRetrying) return;
+    
+    setIsLoadingMore(true);
+    const currentHeight = playlistContainerRef.current?.scrollHeight || 0;
+
+    try {
+      // Always load 50 tracks at a time
+      const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`, {
+        params: {
+          offset: playlistOffset,
+          limit: 50  // Fixed at 50 tracks per request
+        }
+      });
+      
+      const { tracks, total, hasMore: moreAvailable } = response.data;
+      
+      if (!Array.isArray(tracks)) {
+        console.error('Expected tracks array but got:', typeof tracks);
+        return;
+      }
+
+      // Update container height before adding new tracks
+      setContainerHeight(currentHeight);
+
+      setPlaylistTracks(prev => [...prev, ...tracks]);
+      setPlaylistTotal(total);
+      setPlaylistOffset(prev => prev + tracks.length);
+      setHasMore(moreAvailable);
+    } catch (error) {
+      console.error('Error loading more tracks:', error);
+      if (error.response?.status === 429 && !isRetrying) {
+        setIsRetrying(true);
+        const retryAfter = error.response.headers['retry-after'] || 3;
+        loadingTimeoutRef.current = setTimeout(() => {
+          setIsRetrying(false);
+          loadMoreTracks();
+        }, retryAfter * 1000);
+      }
+    } finally {
+      if (!isRetrying) {
+        setIsLoadingMore(false);
+      }
+    }
+  }, [selectedPlaylist, playlistOffset, isLoadingMore, hasMore, isRetrying]);
+
+  // Add intersection observer for infinite scroll
+  useEffect(() => {
+    if (!loadingRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && hasMore && !isLoadingMore && !isRetrying) {
+          loadMoreTracks();
+        }
+      },
+      { 
+        root: null,
+        rootMargin: '200px', // Increased to start loading earlier
+        threshold: 0.1 
+      }
+    );
+
+    observer.observe(loadingRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, isRetrying, loadMoreTracks]);
 
   useEffect(() => {
     const token = localStorage.getItem('spotify_access_token');
@@ -337,13 +440,13 @@ const Home = () => {
       }
   
       // Get track count
-      const trackCount = playlistTracks.length;
+      const trackCount = selectedPlaylist.tracks.total || 0;
   
       // Format last updated date - safely handle missing data
       let lastUpdated = 'Recently';
-      if (selectedPlaylist.tracks?.items?.[0]?.added_at) {
+      if (selectedPlaylist.last_modified) {
         try {
-          const date = new Date(selectedPlaylist.tracks.items[0].added_at);
+          const date = new Date(selectedPlaylist.last_modified);
           const now = new Date();
           const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
           
@@ -579,62 +682,50 @@ const Home = () => {
         return;
       }
 
-      // If not playing from playlist or track not found in playlist, fallback to track URI
+      // Get the current list of tracks
       const currentTracks = trackList || topTracks;
       if (!currentTracks || !Array.isArray(currentTracks)) {
         throw new Error("No valid track list available");
       }
 
-      const startIndex = currentTracks.findIndex(t => t && t.id === track.id);
-      if (startIndex === -1) {
+      // Find the selected track's index
+      const currentIndex = currentTracks.findIndex(t => t && t.id === track.id);
+      if (currentIndex === -1) {
         throw new Error("Selected track not found in track list");
       }
 
-      // Create a queue starting from the selected track
-      const trackQueue = [
-        ...currentTracks.slice(startIndex),
-        ...currentTracks.slice(0, startIndex)
-      ].filter(track => 
-        track && track.uri && 
-        !track.uri.includes('spotify:local') && 
-        track.uri.startsWith('spotify:track:')
-      );
+      // Get the next tracks for the queue (up to 50 tracks)
+      const nextTracks = currentTracks
+        .slice(currentIndex + 1)
+        .concat(currentTracks.slice(0, currentIndex))
+        .filter(t => 
+          t && 
+          t.uri && 
+          !t.uri.includes('spotify:local') && 
+          t.uri.startsWith('spotify:track:')
+        )
+        .slice(0, 50);
 
-      if (trackQueue.length === 0) {
-        throw new Error("No playable tracks found in queue");
-      }
-
-      // Get track URIs
-      const trackUris = trackQueue.map(t => t.uri);
-
-      // Start playback with track URIs
+      // Start playback with the selected track
       await axios.put('/api/spotify/player/play', {
         device_id: deviceId,
-        uris: trackUris
+        uris: [track.uri, ...nextTracks.map(t => t.uri)]
       });
 
-      setQueue(trackQueue.slice(1));
-      updateCurrentTrack(trackQueue[0]);
+      // Update the queue state
+      setQueue(nextTracks);
+      updateCurrentTrack(track);
       setIsPlaying(true);
       setPlayerIsPlaying(true);
 
     } catch (error) {
       console.error("Error playing track:", error);
-      if (error.response?.data?.error) {
-        toast.error(`Error: ${error.response.data.error}`, {
-          style: {
-            background: '#4B0082',
-            color: '#fff',
-          },
-        });
-      } else {
-        toast.error(`Error: ${error.message || 'Failed to play track'}`, {
-          style: {
-            background: '#4B0082',
-            color: '#fff',
-          },
-        });
-      }
+      toast.error(`Error: ${error.message || 'Failed to play track'}`, {
+        style: {
+          background: '#4B0082',
+          color: '#fff',
+        },
+      });
     }
   };
 
@@ -776,6 +867,34 @@ const Home = () => {
       setSelectedPlaylist(null);
     }, 300);
   };
+
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://sdk.scdn.co/spotify-player.js';
+    script.async = true;
+
+    script.onload = () => {
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        setSdkReady(true);
+      };
+    };
+
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (sdkReady && !loading) {
+      const timer = setTimeout(() => {
+        setInitialLoading(false);
+      }, 1000); // Minimum loading screen duration
+
+      return () => clearTimeout(timer);
+    }
+  }, [sdkReady, loading]);
 
   const renderMainContent = () => (
     <motion.div 
@@ -1006,16 +1125,42 @@ const Home = () => {
         </div>
 
         {/* Tracks List */}
-        <div className="space-y-2 pb-24 mt-4">
+        <div 
+          ref={playlistContainerRef} 
+          className="space-y-2 pb-24 mt-4"
+          style={{ 
+            minHeight: containerHeight ? `${containerHeight}px` : 'auto',
+            position: 'relative'
+          }}
+        >
           {sortTracks(playlistTracks, trackSortOrder).map((track, index) => (
-            <TrackItem 
-              key={`${track.id}-${index}`}
-              track={track}
-              onClick={() => handleTrackSelect(track, playlistTracks)}
-              isPlaying={isPlaying && currentTrack?.id === track.id}
-              index={index + 1}
-            />
+            <div key={`${track.id}-${index}`}>
+              <TrackItem 
+                track={track}
+                onClick={() => handleTrackSelect(track, playlistTracks)}
+                isPlaying={isPlaying && currentTrack?.id === track.id}
+                index={index + 1}
+                className="w-full"
+              />
+            </div>
           ))}
+          {/* Loading indicator with ref for intersection observer */}
+          <div 
+            ref={loadingRef}
+            style={{ 
+              height: '20px', 
+              margin: '20px 0',
+              visibility: (!hasMore && playlistTracks.length > 0) ? 'hidden' : 'visible',
+              opacity: isLoadingMore ? 1 : 0,
+              transition: 'opacity 0.3s ease'
+            }}
+          >
+            {(isLoadingMore || isRetrying) && (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                {isRetrying ? 'Rate limit reached. Retrying...' : 'Loading more tracks...'}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -1040,7 +1185,7 @@ const Home = () => {
     )},
     { id: 'artist', label: 'Artist', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     )},
     { id: 'album', label: 'Album', icon: (
@@ -1432,7 +1577,7 @@ const Home = () => {
 
     return (
       <motion.div
-        className="group flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors relative"
+        className="group flex items-center gap-4 p-3 rounded-xl hover:bg-white/5 transition-colors relative w-full"
         onClick={onClick}
         whileHover={{ x: 4 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -1566,15 +1711,8 @@ const Home = () => {
     </button>
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white mx-auto"></div>
-          <p className="mt-4">Loading your music...</p>
-        </div>
-      </div>
-    );
+  if (initialLoading || !sdkReady) {
+    return <LoadingScreen sdkReady={sdkReady} initialLoading={initialLoading} />;
   }
 
   return (
@@ -1658,17 +1796,18 @@ const Home = () => {
         <div className="flex">
           {/* Playlist Sidebar */}
           <div className="fixed left-8 top-1/2 -translate-y-1/2 z-50">
-            <div className="bg-black/40 backdrop-blur-lg rounded-2xl p-4 shadow-xl border border-white/5">
+            <div className="bg-black/40 backdrop-blur-lg rounded-2xl shadow-xl border border-white/5">
               <div 
-                className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto px-2 pb-2 pt-2 -mx-2 -mb-2 -mt-2"
+                className="flex flex-col gap-3 max-h-[70vh] overflow-y-auto playlist-container"
               >
                 {playlists.map((playlist, index) => (
-                  <PlaylistItem
-                    key={`${playlist.id}-${index}`}
-                    playlist={playlist}
-                    onClick={() => handlePlaylistSelect(playlist)}
-                    isSelected={selectedPlaylist?.id === playlist.id}
-                  />
+                  <div key={`${playlist.id}-${index}`}>
+                    <PlaylistItem
+                      playlist={playlist}
+                      onClick={() => handlePlaylistSelect(playlist)}
+                      isSelected={selectedPlaylist?.id === playlist.id}
+                    />
+                  </div>
                 ))}
               </div>
             </div>
