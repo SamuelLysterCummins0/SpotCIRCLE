@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { initializeSpotifySDK, clearSDKStorage } from '../../utils/spotifySDK';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -95,179 +95,109 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
     let isMounted = true;
     let currentPlayer = null;
     
+    // Clear existing SDK storage
+    clearSDKStorage();
+    
     const initializePlayer = () => {
       // Only initialize if we haven't already
       if (currentPlayer) return currentPlayer;
       
-      const player = new window.Spotify.Player({
-        name: 'SpotCIRCLE Web Player',
-        getOAuthToken: cb => {
-          const token = localStorage.getItem('spotify_access_token');
-          if (token) {
-            cb(token);
-          } else {
-            refreshToken();
-          }
-        },
-        volume: volume / 100
-      });
-
-      // Error handling
-      player.addListener('initialization_error', ({ message }) => {
-        console.error('Failed to initialize:', message);
-        if (isMounted) setError('Failed to initialize player');
-      });
-
-      player.addListener('authentication_error', ({ message }) => {
-        console.error('Failed to authenticate:', message);
-        refreshToken();
-      });
-
-      player.addListener('account_error', ({ message }) => {
-        console.error('Failed to validate Spotify account:', message);
-        if (isMounted) setError('Premium account required');
-      });
-
-      player.addListener('playback_error', handlePlaybackError);
-
-      player.addListener('player_state_changed', handleStateChange);
-
-      // Ready handling
-      player.addListener('ready', ({ device_id }) => {
-        console.log('The Web Playback SDK is ready with device ID:', device_id);
-        if (!isMounted) return;
-        
-        setDeviceId(device_id);
-        setIsReady(true);
-        setPlayer(player);
-        
-        // Store device ID globally
-        window.spotifyWebPlaybackDeviceId = device_id;
-
-        // Check if device is ready before transfer
-        const checkDeviceReady = async (token) => {
-          try {
-            const response = await axios.get(`${API_URL}/api/spotify/player/devices`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            return response.data.devices.some(d => d.id === device_id);
-          } catch (error) {
-            return false;
-          }
-        };
-
-        // Transfer playback to this device
-        const transferPlayback = async () => {
-          try {
+      try {
+        const player = new window.Spotify.Player({
+          name: 'SpotCIRCLE Web Player',
+          getOAuthToken: cb => {
             const token = localStorage.getItem('spotify_access_token');
-            if (!token) {
-              throw new Error('No access token available');
+            if (token) {
+              cb(token);
+            } else {
+              refreshToken();
             }
-
-            // Wait for device to be ready (max 3 attempts)
-            let deviceReady = false;
-            for (let i = 0; i < 3; i++) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              deviceReady = await checkDeviceReady(token);
-              if (deviceReady) break;
-            }
-
-            if (!deviceReady) {
-              // Device not ready yet, but that's okay - it will be ready when needed
-              return;
-            }
-            
-            // Only transfer if we're not already active
-            const response = await axios.get(`${API_URL}/api/spotify/player/current`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            }).catch(error => {
-              if (error.response?.status === 204) {
-                return { data: { device: null } };
-              }
-              throw error;
-            });
-            
-            const currentDevice = response.data?.device?.id;
-            if (currentDevice !== device_id) {
-              await axios.put(`${API_URL}/api/spotify/player`, {
-                deviceId: device_id
-              }, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-            }
-          } catch (error) {
-            // Only log if it's not a 204 response or device already active
-            if (error.response?.status !== 204 && 
-                !(error.response?.data?.message === 'Device already active')) {
-              // Don't log the initial setup error
-              if (error.response?.status !== 400 || window.spotifyHasPlayedTrack) {
-                console.warn('Device transfer not completed, will retry when playing:', 
-                  error.response?.status === 400 ? 'Device not ready' : error.message
-                );
-              }
-            }
-          }
-        };
-
-        // Initial transfer attempt
-        transferPlayback().catch(() => {
-          // Silently fail - we'll retry when playing
+          },
+          volume: volume / 100
         });
-      });
 
-      player.addListener('not_ready', ({ device_id }) => {
-        console.log('Device ID has gone offline:', device_id);
-        if (!isMounted) return;
-        
-        setIsReady(false);
-        window.spotifyWebPlaybackDeviceId = null;
-      });
+        // Error handling
+        player.addListener('initialization_error', ({ message }) => {
+          console.error('Failed to initialize:', message);
+          if (isMounted) setError('Failed to initialize player');
+        });
 
-      // Connect to the player
-      if (!player.isConnected) {
-        console.log('Connecting to Spotify Web Playback SDK...');
-        player.connect().then(success => {
+        player.addListener('authentication_error', ({ message }) => {
+          console.error('Failed to authenticate:', message);
+          refreshToken();
+        });
+
+        player.addListener('account_error', ({ message }) => {
+          console.error('Failed to validate Spotify account:', message);
+          if (isMounted) setError('Premium account required');
+        });
+
+        player.addListener('playback_error', handlePlaybackError);
+
+        player.addListener('player_state_changed', handleStateChange);
+
+        // Ready handling
+        player.addListener('ready', ({ device_id }) => {
           if (!isMounted) return;
-          
-          if (success) {
-            console.log('Successfully connected to Spotify Web Playback SDK');
-            setPlayer(player);
-          } else {
-            console.error('Failed to connect to Spotify Web Playback SDK');
-            setError('Failed to connect to Spotify');
-          }
+          console.log('The Web Playback SDK is ready with device ID:', device_id);
+          setDeviceId(device_id);
+          setIsReady(true);
+          setPlayer(player);
+          window.spotifyWebPlaybackDeviceId = device_id;
         });
-      }
 
-      currentPlayer = player;
-      return player;
-    };
+        player.addListener('not_ready', ({ device_id }) => {
+          if (!isMounted) return;
+          console.log('Device ID has gone offline:', device_id);
+          setIsReady(false);
+          window.spotifyWebPlaybackDeviceId = null;
+        });
 
-    // Check if script is already loaded
-    if (window.Spotify) {
-      const player = initializePlayer();
-      return () => {
-        isMounted = false;
-        if (player) {
-          player.disconnect();
+        // Connect to the player
+        if (!player.isConnected) {
+          console.log('Connecting to Spotify Web Playback SDK...');
+          player.connect().then(success => {
+            if (!isMounted) return;
+            if (success) {
+              console.log('Successfully connected to Spotify Web Playback SDK');
+              setPlayer(player);
+            } else {
+              console.error('Failed to connect to Spotify Web Playback SDK');
+              setError('Failed to connect to Spotify');
+            }
+          }).catch(error => {
+            console.error('Error connecting to Spotify:', error);
+            if (isMounted) setError('Connection error');
+          });
         }
-      };
-    }
 
-    const script = document.createElement("script");
-    script.src = "https://sdk.scdn.co/spotify-player.js";
-    script.async = true;
-
-    document.body.appendChild(script);
-
-    window.onSpotifyWebPlaybackSDKReady = () => {
-      const player = initializePlayer();
+        currentPlayer = player;
+        return player;
+      } catch (error) {
+        console.error('Error creating Spotify player:', error);
+        if (isMounted) setError('Failed to create player');
+        return null;
+      }
     };
+
+    // Initialize SDK and player
+    initializeSpotifySDK().then(() => {
+      if (window.Spotify && isMounted) {
+        const player = initializePlayer();
+        if (player) {
+          setPlayer(player);
+        }
+      }
+    }).catch(error => {
+      console.error('Error initializing Spotify SDK:', error);
+      if (isMounted) setError('SDK initialization failed');
+    });
 
     return () => {
       isMounted = false;
       if (currentPlayer) {
         currentPlayer.disconnect();
+        clearSDKStorage();
       }
     };
   }, []); // Empty dependency array since we only want to initialize once

@@ -507,7 +507,8 @@ exports.getPlaylistTracks = async (req, res) => {
         const data = await req.spotifyApi.getPlaylistTracks(playlistId, {
           offset: offset,
           limit: limit,
-          fields: 'items(track(id,name,uri,duration_ms,artists,album))'
+          fields: 'items(added_at,track(id,name,artists,album,duration_ms,uri))',
+          market: 'from_token'
         });
 
         const tracks = data.body.items
@@ -521,13 +522,19 @@ exports.getPlaylistTracks = async (req, res) => {
             track.uri.startsWith('spotify:track:')
           );
 
+        // Map the tracks to include added_at
+        const tracksWithDates = data.body.items.map(item => ({
+          ...item.track,
+          added_at: item.added_at
+        }));
+
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 100));
 
         const nextOffset = offset + tracks.length;
         const hasMore = nextOffset < playlistInfo.tracks.total;
 
-        return { tracks, nextOffset, hasMore };
+        return { tracks: tracksWithDates, nextOffset, hasMore };
       };
 
       const { tracks, nextOffset, hasMore } = await CacheService.getPlaylistTracks(
@@ -557,7 +564,8 @@ exports.getPlaylistTracks = async (req, res) => {
           const retryData = await req.spotifyApi.getPlaylistTracks(playlistId, {
             offset: offset,
             limit: limit,
-            fields: 'items(track(id,name,uri,duration_ms,artists,album))'
+            fields: 'items(added_at,track(id,name,artists,album,duration_ms,uri))',
+            market: 'from_token'
           });
           
           const tracks = retryData.body.items
@@ -571,8 +579,14 @@ exports.getPlaylistTracks = async (req, res) => {
               track.uri.startsWith('spotify:track:')
             );
 
+          // Map the tracks to include added_at
+          const tracksWithDates = retryData.body.items.map(item => ({
+            ...item.track,
+            added_at: item.added_at
+          }));
+
           return {
-            tracks,
+            tracks: tracksWithDates,
             nextOffset: offset + tracks.length,
             hasMore: offset + tracks.length < playlistInfo.tracks.total
           };

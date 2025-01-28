@@ -4,7 +4,7 @@ import './loading-animations.css';
 
 const LoadingScreen = ({ sdkReady, initialLoading }) => {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gradient-to-b from-[#1E1E1E] to-[#121212] text-white pb-24">
       {!sdkReady && (
         <div className="hidden">
           <SpotifyPlayer

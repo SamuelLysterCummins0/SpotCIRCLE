@@ -15,6 +15,7 @@ import api from '../utils/api';
 import toast, { Toaster } from 'react-hot-toast';
 import { usePlayerContext } from '../contexts/PlayerContext';
 import '../styles/playlist-container.css';
+import { initializeSpotifySDK } from '../utils/spotifySDK';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -72,6 +73,7 @@ const Home = () => {
   const [deviceId, setDeviceId] = useState(null);
   const [trackSortOrder, setTrackSortOrder] = useState('default');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [displayedTracks, setDisplayedTracks] = useState([]); // New state to store sorted tracks
   const { scrollY } = useScroll();
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
@@ -259,6 +261,8 @@ const Home = () => {
       setHasMore(true);
       setIsLoadingMore(false);
       setContainerHeight(0);
+      // Reset sort order to default when changing playlists
+      setTrackSortOrder('default');
       
       try {
         const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist.id}/tracks`, {
@@ -328,10 +332,19 @@ const Home = () => {
         return;
       }
 
+      // Filter out invalid tracks and ensure required properties exist
+      const validTracks = tracks.filter(track => 
+        track && 
+        track.name && 
+        Array.isArray(track.artists) && 
+        track.artists.length > 0 &&
+        track.artists.every(artist => artist && artist.name)
+      );
+
       // Update container height before adding new tracks
       setContainerHeight(currentHeight);
 
-      setPlaylistTracks(prev => [...prev, ...tracks]);
+      setPlaylistTracks(prev => [...prev, ...validTracks]);
       setPlaylistTotal(total);
       setPlaylistOffset(prev => prev + tracks.length);
       setHasMore(moreAvailable);
@@ -869,21 +882,9 @@ const Home = () => {
   };
 
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://sdk.scdn.co/spotify-player.js';
-    script.async = true;
-
-    script.onload = () => {
-      window.onSpotifyWebPlaybackSDKReady = () => {
-        setSdkReady(true);
-      };
-    };
-
-    document.body.appendChild(script);
-
-    return () => {
-      document.body.removeChild(script);
-    };
+    initializeSpotifySDK().then(() => {
+      setSdkReady(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -1039,7 +1040,7 @@ const Home = () => {
               <div className="relative">
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
                 </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{duration}</span>
@@ -1053,7 +1054,7 @@ const Home = () => {
               <div className="relative">
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
               </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{trackCount}</span>
@@ -1067,7 +1068,7 @@ const Home = () => {
               <div className="relative">
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative transform rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
                 </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{lastUpdated}</span>
@@ -1110,7 +1111,7 @@ const Home = () => {
                         setTrackSortOrder(option.id);
                         setShowSortDropdown(false);
                       }}
-                      className={`w-full px-4 py-2 text-sm flex items-center gap-2 hover:bg-purple-700/20 transition-colors duration-200 ${
+                      className={`w-full px-4 py-2 text-left hover:bg-white/10 transition-colors ${
                         trackSortOrder === option.id ? 'bg-purple-700/30 text-purple-300' : 'text-gray-200'
                       }`}
                     >
@@ -1133,7 +1134,7 @@ const Home = () => {
             position: 'relative'
           }}
         >
-          {sortTracks(playlistTracks, trackSortOrder).map((track, index) => (
+          {displayedTracks.map((track, index) => (
             <div key={`${track.id}-${index}`}>
               <TrackItem 
                 track={track}
@@ -1173,24 +1174,29 @@ const Home = () => {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
       </svg>
     )},
-    { id: 'recent', label: 'Recently Added', icon: (
+    { id: 'reverse', label: 'Reverse', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+      </svg>
+    )},
+    { id: 'shuffle', label: 'Shuffle', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 00-.293-.707L7 12.586V6a1 1 0 00-.293-.707z" />
       </svg>
     )},
     { id: 'name', label: 'Name', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M3 10h12M3 15h12" />
       </svg>
     )},
     { id: 'artist', label: 'Artist', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
       </svg>
     )},
     { id: 'album', label: 'Album', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
       </svg>
     )},
     { id: 'duration', label: 'Duration', icon: (
@@ -1203,22 +1209,49 @@ const Home = () => {
   const sortTracks = useCallback((tracks, order) => {
     if (!tracks) return [];
     
-    const sortedTracks = [...tracks];
+    const tracksToSort = [...tracks]; // Create a new array to avoid mutating state
+    
     switch (order) {
-      case 'recent':
-        return sortedTracks.sort((a, b) => new Date(b.added_at || 0) - new Date(a.added_at || 0));
+      case 'reverse':
+        return [...tracksToSort].reverse();
+      case 'shuffle':
+        return [...tracksToSort].sort(() => Math.random() - 0.5);
       case 'name':
-        return sortedTracks.sort((a, b) => a.name.localeCompare(b.name));
+        return [...tracksToSort].sort((a, b) => a.name.localeCompare(b.name));
       case 'artist':
-        return sortedTracks.sort((a, b) => a.artists[0].name.localeCompare(b.artists[0].name));
+        return [...tracksToSort].sort((a, b) => {
+          const artistA = a.artists[0]?.name || '';
+          const artistB = b.artists[0]?.name || '';
+          return artistA.localeCompare(artistB);
+        });
       case 'album':
-        return sortedTracks.sort((a, b) => a.album.name.localeCompare(b.album.name));
+        return [...tracksToSort].sort((a, b) => {
+          const albumA = a.album?.name || '';
+          const albumB = b.album?.name || '';
+          return albumA.localeCompare(albumB);
+        });
       case 'duration':
-        return sortedTracks.sort((a, b) => a.duration_ms - b.duration_ms);
+        return [...tracksToSort].sort((a, b) => a.duration_ms - b.duration_ms);
       default:
-        return sortedTracks;
+        return tracksToSort;
     }
   }, []);
+
+  useEffect(() => {
+    if (playlistTracks && playlistTracks.length > 0) {
+      const sortedTracks = sortTracks(playlistTracks, trackSortOrder);
+      setDisplayedTracks(sortedTracks);
+    }
+  }, [playlistTracks, trackSortOrder, sortTracks]);
+
+  const handleSortChange = (newOrder) => {
+    if (newOrder === trackSortOrder) {
+      // If clicking the same sort option, revert to default
+      setTrackSortOrder('default');
+    } else {
+      setTrackSortOrder(newOrder);
+    }
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -1611,13 +1644,23 @@ const Home = () => {
           >
             {index}. {track.name}
           </motion.h3>
-          <motion.p 
-            className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors"
-            initial={{ opacity: 0.7 }}
-            whileHover={{ opacity: 1 }}
-          >
-            {track.artists.map(a => a.name).join(', ')}
-          </motion.p>
+          {track && track.artists && Array.isArray(track.artists) ? (
+            <motion.p 
+              className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors"
+              initial={{ opacity: 0.7 }}
+              whileHover={{ opacity: 1 }}
+            >
+              {track.artists.filter(a => a && a.name).map(a => a.name).join(', ')}
+            </motion.p>
+          ) : (
+            <motion.p 
+              className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors"
+              initial={{ opacity: 0.7 }}
+              whileHover={{ opacity: 1 }}
+            >
+              Unknown Artist
+            </motion.p>
+          )}
         </div>
         <div className="flex items-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
           <motion.button
@@ -1675,9 +1718,15 @@ const Home = () => {
         whileHover={{ opacity: 1 }}
       >
         <h3 className="font-medium truncate text-white group-hover:text-white/90 transition-colors">{index}. {track.name}</h3>
-        <p className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
-          {track.artists.map(a => a.name).join(', ')}
-        </p>
+        {track && track.artists && Array.isArray(track.artists) ? (
+          <p className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
+            {track.artists.filter(a => a && a.name).map(a => a.name).join(', ')}
+          </p>
+        ) : (
+          <p className="text-sm text-gray-400 truncate group-hover:text-gray-300 transition-colors">
+            Unknown Artist
+          </p>
+        )}
       </motion.div>
     </motion.div>
   );

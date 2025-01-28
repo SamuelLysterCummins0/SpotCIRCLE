@@ -22,6 +22,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const containerRef = useRef(null);
   const progressBarRef = useRef(null);
   const volumeBarRef = useRef(null);
+  const [isInitialMount, setIsInitialMount] = useState(true);
 
   // Add debounce utility
   const debounce = (func, wait) => {
@@ -167,50 +168,128 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     setScrollPosition(newPosition);
   };
 
+  const handleProgressTouchStart = (e) => {
+    setIsDragging(true);
+    handleProgressBarClick(e.touches[0]);
+  };
+
+  const handleProgressTouchMove = (e) => {
+    if (isDragging) {
+      handleProgressBarDrag(e);
+    }
+  };
+
+  const handleProgressTouchEnd = () => {
+    handleDragEnd();
+  };
+
+  const handleVolumeTouchStart = (e) => {
+    setIsDraggingVolume(true);
+    handleVolumeBarClick(e.touches[0]);
+  };
+
+  const handleVolumeTouchMove = (e) => {
+    if (isDraggingVolume) {
+      handleVolumeBarDrag(e);
+    }
+  };
+
+  const handleVolumeTouchEnd = () => {
+    handleVolumeDragEnd();
+  };
+
   const handleProgressBarClick = async (e) => {
     if (!progressBarRef.current) return;
     const rect = progressBarRef.current.getBoundingClientRect();
-    const clickPosition = e.clientX - rect.left;
+    const clickPosition = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const percentage = clickPosition / rect.width;
-    const newProgress = Math.floor(percentage * duration);
+    const newProgress = Math.min(Math.floor(percentage * duration), duration);
+    setProgress(newProgress);
     await seekToPosition(newProgress);
   };
 
-  const handleProgressBarDrag = async (e) => {
+  const handleProgressBarDrag = (e) => {
     if (!isDragging || !progressBarRef.current) return;
+    
     const rect = progressBarRef.current.getBoundingClientRect();
-    const clickPosition = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const x = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+    const clickPosition = Math.max(0, Math.min(x - rect.left, rect.width));
     const percentage = clickPosition / rect.width;
-    const newProgress = Math.floor(percentage * duration);
+    const newProgress = Math.min(Math.floor(percentage * duration), duration);
+    
+    // Update immediately for smoother visual feedback
     setProgress(newProgress);
+    
+    // Debounce the actual seek operation
+    debouncedSeek(newProgress);
   };
 
-  const handleDragEnd = async () => {
-    if (isDragging) {
-      await seekToPosition(progress);
-      setIsDragging(false);
-    }
+  const debouncedSeek = useCallback(
+    debounce((position) => {
+      seekToPosition(position);
+    }, 50),
+    []
+  );
+
+  const handleVolumeBarClick = async (e) => {
+    if (!volumeBarRef.current) return;
+    const rect = volumeBarRef.current.getBoundingClientRect();
+    const clickPosition = Math.max(0, Math.min(rect.bottom - e.clientY, rect.height));
+    const percentage = Math.max(0, Math.min(100, (clickPosition / rect.height) * 100));
+    await handleVolumeChange(Math.round(percentage));
   };
+
+  const handleVolumeBarDrag = (e) => {
+    if (!isDraggingVolume || !volumeBarRef.current) return;
+    
+    const rect = volumeBarRef.current.getBoundingClientRect();
+    const y = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+    const clickPosition = Math.max(0, Math.min(rect.bottom - y, rect.height));
+    const percentage = Math.max(0, Math.min(100, (clickPosition / rect.height) * 100));
+    const newVolume = Math.round(percentage);
+    
+    // Update immediately for smoother visual feedback
+    setVolume(newVolume);
+    
+    // Debounce the actual volume change
+    debouncedVolumeChange(newVolume);
+  };
+
+  const debouncedVolumeChange = useCallback(
+    debounce((newVolume) => {
+      handleVolumeChange(newVolume);
+    }, 50),
+    []
+  );
 
   useEffect(() => {
-    const handleMouseUp = () => {
-      handleDragEnd();
-    };
-
-    const handleMouseMove = (e) => {
-      handleProgressBarDrag(e);
-    };
-
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+    let interval;
+    if (isPlaying && !isDragging && track) {
+      interval = setInterval(() => {
+        setProgress(prev => {
+          const newProgress = prev + 1000;
+          // Don't exceed track duration
+          if (newProgress >= duration) {
+            clearInterval(interval);
+            return duration;
+          }
+          return newProgress;
+        });
+      }, 1000); // Update every second
     }
-
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      if (interval) {
+        clearInterval(interval);
+      }
     };
-  }, [isDragging]);
+  }, [isPlaying, isDragging, duration, track]);
+
+  useEffect(() => {
+    if (track) {
+      setProgress(0);
+      setDuration(track.duration_ms);
+    }
+  }, [track?.uri]); // Only reset when track URI changes
 
   const handleVolumeChange = async (newVolume) => {
     try {
@@ -225,22 +304,6 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     }
   };
 
-  const handleVolumeBarClick = async (e) => {
-    if (!volumeBarRef.current) return;
-    const rect = volumeBarRef.current.getBoundingClientRect();
-    const clickPosition = rect.bottom - e.clientY;
-    const percentage = Math.max(0, Math.min(100, (clickPosition / rect.height) * 100));
-    await handleVolumeChange(Math.round(percentage));
-  };
-
-  const handleVolumeBarDrag = async (e) => {
-    if (!isDraggingVolume || !volumeBarRef.current) return;
-    const rect = volumeBarRef.current.getBoundingClientRect();
-    const clickPosition = rect.bottom - e.clientY;
-    const percentage = Math.max(0, Math.min(100, (clickPosition / rect.height) * 100));
-    setVolume(Math.round(percentage));
-  };
-
   const handleVolumeDragEnd = async () => {
     if (isDraggingVolume) {
       await handleVolumeChange(volume);
@@ -249,24 +312,46 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   };
 
   useEffect(() => {
-    const handleMouseUp = () => {
-      handleVolumeDragEnd();
-    };
-
     const handleMouseMove = (e) => {
-      handleVolumeBarDrag(e);
+      if (isDragging) {
+        handleProgressBarDrag(e);
+      } else if (isDraggingVolume) {
+        handleVolumeBarDrag(e);
+      }
     };
 
-    if (isDraggingVolume) {
-      window.addEventListener('mousemove', handleMouseMove);
+    const handleMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false);
+      }
+      if (isDraggingVolume) {
+        setIsDraggingVolume(false);
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      e.preventDefault(); // Prevent scrolling while dragging
+      if (isDragging) {
+        handleProgressBarDrag(e);
+      } else if (isDraggingVolume) {
+        handleVolumeBarDrag(e);
+      }
+    };
+
+    if (isDragging || isDraggingVolume) {
+      window.addEventListener('mousemove', handleMouseMove, { passive: false });
       window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
+      window.addEventListener('touchend', handleMouseUp);
     }
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleMouseUp);
     };
-  }, [isDraggingVolume]);
+  }, [isDragging, isDraggingVolume]);
 
   const formatTime = (ms) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -434,6 +519,13 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     img.src = imageUrl;
   }, []);
 
+  useEffect(() => {
+    if (isInitialMount && track?.album?.images?.[0]?.url) {
+      extractColors(track.album.images[0].url);
+      setIsInitialMount(false);
+    }
+  }, [isInitialMount, track]);
+
   const rgbToHsl = (r, g, b) => {
     r /= 255;
     g /= 255;
@@ -517,57 +609,12 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     [track?.uri]
   );
 
-  // Optimize progress interval
-  useEffect(() => {
-    let interval;
-    if (isPlaying && !isDragging && track) {
-      interval = setInterval(() => {
-        if (trackRef.current === track) {
-          setProgress(prev => {
-            if (prev >= duration) {
-              clearInterval(interval);
-              return prev;
-            }
-            return prev + 1000;
-          });
-        }
-      }, 1000);
+  const handleDragEnd = async () => {
+    if (isDragging) {
+      await seekToPosition(progress);
+      setIsDragging(false);
     }
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [isPlaying, isDragging, duration, track?.uri]);
-
-  useEffect(() => {
-    if (track?.album?.images[0]?.url) {
-      extractColors(track.album.images[0].url);
-    }
-  }, [track, extractColors]);
-
-  useEffect(() => {
-    let interval;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= duration) {
-            clearInterval(interval);
-            return 0;
-          }
-          return prev + 1000;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, duration]);
-
-  useEffect(() => {
-    if (track) {
-      setProgress(0);
-      setDuration(track.duration_ms);
-    }
-  }, [track]);
+  };
 
   const discVariants = {
     normal: { 
@@ -645,6 +692,9 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       setIsDraggingVolume(true);
                       handleVolumeBarDrag(e);
                     }}
+                    onTouchStart={handleVolumeTouchStart}
+                    onTouchMove={handleVolumeTouchMove}
+                    onTouchEnd={handleVolumeTouchEnd}
                   >
                     <motion.div 
                       className="absolute bottom-0 left-0 right-0 bg-purple-500/50 rounded-full"
@@ -693,14 +743,17 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
                       className={`relative cursor-pointer group transition-all duration-300 ${isExpanded ? 'h-2' : 'h-1 mb-2'}`}
                     >
                       <div 
-                        className="absolute inset-0 bg-purple-500/20 rounded-full"
                         ref={progressBarRef}
+                        className="absolute inset-0 bg-purple-500/20 rounded-full"
                         onClick={handleProgressBarClick}
                         onMouseDown={(e) => {
                           e.preventDefault();
                           setIsDragging(true);
                           handleProgressBarDrag(e);
                         }}
+                        onTouchStart={handleProgressTouchStart}
+                        onTouchMove={handleProgressTouchMove}
+                        onTouchEnd={handleProgressTouchEnd}
                       >
                         <motion.div 
                           className="absolute top-0 left-0 h-full bg-purple-500/50 rounded-full"
