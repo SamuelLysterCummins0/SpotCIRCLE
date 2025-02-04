@@ -17,7 +17,7 @@ import { usePlayerContext } from '../contexts/PlayerContext';
 import '../styles/playlist-container.css';
 import { initializeSpotifySDK } from '../utils/spotifySDK';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 const TimeRanges = {
   SHORT: 'short_term',     // Last 4 weeks
@@ -1040,7 +1040,7 @@ const Home = () => {
               <div className="relative">
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{duration}</span>
@@ -1054,8 +1054,8 @@ const Home = () => {
               <div className="relative">
                 <div className="absolute inset-0 bg-purple-500/20 blur-xl rounded-full"></div>
                 <svg className="w-5 h-5 text-purple-400 relative" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM9 10l12-3" />
-              </svg>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
               </div>
               <span className="text-purple-300 font-medium mt-2 text-lg drop-shadow-[0_0_3px_rgba(168,85,247,0.3)]">{trackCount}</span>
               <span className="text-xs uppercase tracking-widest text-purple-400/70 mt-1">Tracks</span>
@@ -1181,7 +1181,7 @@ const Home = () => {
     )},
     { id: 'shuffle', label: 'Shuffle', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 00-.293-.707L7 12.586V6a1 1 0 00-.293-.707z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 00-.293-.707z" />
       </svg>
     )},
     { id: 'name', label: 'Name', icon: (
@@ -1201,7 +1201,7 @@ const Home = () => {
     )},
     { id: 'duration', label: 'Duration', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     )}
   ];

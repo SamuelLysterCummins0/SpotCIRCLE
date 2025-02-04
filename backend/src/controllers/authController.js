@@ -45,7 +45,7 @@ const handleCallback = async (req, res) => {
     // Check if code has been used
     if (usedCodes.has(code)) {
       console.log('Auth code has already been used:', code);
-      return res.status(400).json({ error: 'Authorization code has already been used' });
+      return res.redirect(`${process.env.FRONTEND_URL}?error=code_used`);
     }
 
     console.log('Received auth code:', code);
@@ -71,14 +71,12 @@ const handleCallback = async (req, res) => {
     const userResponse = await spotifyApi.getMe();
     const userId = userResponse.body.id;
 
-    res.json({
-      access_token,
-      refresh_token,
-      userId
-    });
+    // Redirect to frontend with tokens
+    const redirectUrl = `${process.env.FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}&user_id=${userId}`;
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Error in callback:', error);
-    res.status(500).json({ error: 'Failed to authenticate with Spotify' });
+    res.redirect(`${process.env.FRONTEND_URL}?error=auth_failed`);
   }
 };
 

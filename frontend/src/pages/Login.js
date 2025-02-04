@@ -9,81 +9,50 @@ const Login = () => {
   const location = useLocation();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [isProcessingCallback, setIsProcessingCallback] = useState(false);
-
-  const handleCallback = useCallback(async (code) => {
-    if (isProcessingCallback) return;
-    
-    try {
-      setIsProcessingCallback(true);
-      setLoading(true);
-      setError(null);
-      console.log('Handling Spotify callback with code');
-      
-      // Clear any existing tokens before getting new ones
-      localStorage.removeItem('spotify_access_token');
-      localStorage.removeItem('spotify_refresh_token');
-      localStorage.removeItem('spotify_user_id');
-
-      const response = await axios.get(`${API_URL}/auth/callback`, {
-        params: { code }
-      });
-
-      console.log('Got response from backend');
-      const { access_token, refresh_token, userId } = response.data;
-      
-      if (!access_token || !refresh_token) {
-        throw new Error('Invalid response from server - missing tokens');
-      }
-
-      localStorage.setItem('spotify_access_token', access_token);
-      localStorage.setItem('spotify_refresh_token', refresh_token);
-      if (userId) {
-        localStorage.setItem('spotify_user_id', userId);
-      }
-
-      navigate('/home');
-    } catch (error) {
-      console.error('Error during callback:', error);
-      let errorMessage = 'Failed to complete login. Please try again.';
-      if (error.response?.data?.details) {
-        errorMessage += ` (${error.response.data.details})`;
-      }
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-      setIsProcessingCallback(false);
-    }
-  }, [navigate, isProcessingCallback]);
 
   useEffect(() => {
     const checkAuth = async () => {
-      // Check if we're handling the callback from Spotify
       const urlParams = new URLSearchParams(location.search);
-      const code = urlParams.get('code');
       const error = urlParams.get('error');
-      
+      const accessToken = urlParams.get('access_token');
+      const refreshToken = urlParams.get('refresh_token');
+      const userId = urlParams.get('user_id');
+
       if (error) {
-        console.error('Spotify auth error:', error);
-        setError('Authentication failed. Please try again.');
+        console.error('Auth error:', error);
+        if (error === 'code_used') {
+          setError('This login link has already been used. Please try logging in again.');
+        } else {
+          setError('Authentication failed. Please try again.');
+        }
         return;
       }
-      
-      if (code) {
-        // Remove code from URL to prevent reuse
-        window.history.replaceState({}, document.title, window.location.pathname);
-        await handleCallback(code);
-      } else {
-        // Check if we're already logged in
-        const token = localStorage.getItem('spotify_access_token');
-        if (token) {
-          navigate('/home');
+
+      if (accessToken && refreshToken) {
+        // Store tokens
+        localStorage.setItem('spotify_access_token', accessToken);
+        localStorage.setItem('spotify_refresh_token', refreshToken);
+        if (userId) {
+          localStorage.setItem('spotify_user_id', userId);
         }
+
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Navigate to home
+        navigate('/home');
+        return;
+      }
+
+      // Check if we're already logged in
+      const existingToken = localStorage.getItem('spotify_access_token');
+      if (existingToken) {
+        navigate('/home');
       }
     };
 
     checkAuth();
-  }, [location, navigate, handleCallback]);
+  }, [location, navigate]);
 
   const handleLogin = async () => {
     try {
