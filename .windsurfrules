@@ -6,3 +6,5 @@
 6. Dont change the functioanlity of of the UI when im asking for just UI changes that dont need new functioanlity.
 7. When making structural features such as e.g JSX structure double check that no mistakes were made. 
 8. Make sure to not make any duplicates.
+9.Please analyze the following code changes and identify any incompatibilities or breaking changes that could affect the broader project's functionality and interfaces. Provide specific warnings about critical issues and suggest improvements that maintain system stability.
+10. Throughly Double check any changes to @Home.js as this file is very large and any changes usually cause erros.
