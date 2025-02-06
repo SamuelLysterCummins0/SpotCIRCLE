@@ -18,7 +18,12 @@ export const debounce = (func, wait) => {
 
 export const getPlaylistStats = (selectedPlaylist, playlistTracks) => {
   if (!selectedPlaylist || !playlistTracks || playlistTracks.length === 0) {
-    return { duration: '0 min', trackCount: 0, lastUpdated: 'Never' };
+    return { 
+      duration: '0 min', 
+      trackCount: 0, 
+      lastUpdated: 'Never',
+      saves: 0 
+    };
   }
 
   try {
@@ -41,6 +46,7 @@ export const getPlaylistStats = (selectedPlaylist, playlistTracks) => {
     }
 
     const trackCount = selectedPlaylist.tracks.total || 0;
+    const saves = selectedPlaylist?.saves || 0;
 
     let lastUpdated = 'Recently';
     if (selectedPlaylist.last_modified) {
@@ -72,10 +78,53 @@ export const getPlaylistStats = (selectedPlaylist, playlistTracks) => {
     return {
       duration,
       trackCount,
-      lastUpdated
+      lastUpdated,
+      saves
     };
   } catch (error) {
     console.error('Error calculating playlist stats:', error);
-    return { duration: '0 min', trackCount: 0, lastUpdated: 'Recently' };
+    return { 
+      duration: '0 min', 
+      trackCount: 0, 
+      lastUpdated: 'Recently',
+      saves: 0 
+    };
+  }
+};
+
+export const getHeaderStats = (playlist, tracks) => {
+  if (!playlist || !tracks || !Array.isArray(tracks)) {
+    return {
+      uniqueArtists: 0,
+      creator: '',
+      visibility: 'Private'
+    };
+  }
+
+  try {
+    const artistSet = new Set();
+    tracks.forEach(trackItem => {
+      const track = trackItem.track || trackItem;
+      if (track?.artists?.length) {
+        track.artists.forEach(artist => {
+          if (artist?.id) {
+            artistSet.add(artist.id);
+          }
+        });
+      }
+    });
+
+    return {
+      uniqueArtists: artistSet.size,
+      creator: playlist?.owner?.display_name || '',
+      visibility: playlist?.public ? 'Public' : 'Private'
+    };
+  } catch (error) {
+    console.error('Error calculating header stats:', error);
+    return {
+      uniqueArtists: 0,
+      creator: playlist?.owner?.display_name || '',
+      visibility: playlist?.public ? 'Public' : 'Private'
+    };
   }
 };

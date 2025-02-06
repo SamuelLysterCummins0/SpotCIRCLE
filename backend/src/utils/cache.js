@@ -1,103 +1,134 @@
 const NodeCache = require('node-cache');
 
-// Initialize cache with default TTL of 30 minutes and check period of 1 minute
+// Initialize cache with default TTL of 15 minutes and check period of 1 minute
 const cache = new NodeCache({
-  stdTTL: 1800, // 30 minutes in seconds
+  stdTTL: 900, // 15 minutes in seconds
   checkperiod: 60, // Check for expired keys every minute
   useClones: false // Store/retrieve references to objects instead of copies
 });
 
-// Cache keys with snapshot support
+// Cache keys for authentication and shared resources
 const CACHE_KEYS = {
+  // Authentication
+  ACCESS_TOKEN: (userId) => `auth:${userId}:access_token`,
+  REFRESH_TOKEN: (userId) => `auth:${userId}:refresh_token`,
+  
+  // Rate Limiting
+  RATE_LIMIT: (userId) => `rate:${userId}:limit`,
+  REQUEST_COUNT: (userId) => `rate:${userId}:count`,
+  
+  // User Data
+  USER_PROFILE: (userId) => `user:${userId}:profile`,
+  USER_PREFERENCES: (userId) => `user:${userId}:preferences`,
   USER_PLAYLISTS: (userId) => `user:${userId}:playlists`,
-  PLAYLIST_TRACKS: (playlistId, offset, limit, snapshotId = '') => 
-    `playlist:${playlistId}:tracks:${offset}:${limit}${snapshotId ? `:${snapshotId}` : ''}`,
-  PLAYLIST_INFO: (playlistId) => `playlist:${playlistId}:info`,
-  TOP_TRACKS: (userId, timeRange) => `user:${userId}:top-tracks:${timeRange}`,
-  TOP_ARTISTS: (userId, timeRange) => `user:${userId}:top-artists:${timeRange}`,
-  TRACK_METADATA: (trackId) => `track:${trackId}:metadata`,
-  USER_PROFILE: (userId) => `user:${userId}:profile`
+  PLAYLIST_TRACKS: (playlistId, offset, limit) => `playlist:${playlistId}:tracks:${offset}:${limit}`,
+  
+  // Global Settings
+  APP_SETTINGS: () => `app:settings`,
+  FEATURE_FLAGS: () => `app:features`,
+  
+  // Error Tracking
+  ERROR_COUNT: (userId) => `error:${userId}:count`,
+  LAST_ERROR: (userId) => `error:${userId}:last`
 };
 
 // Optimized cache durations in seconds
 const CACHE_DURATION = {
-  PLAYLISTS: 900,        // 15 minutes for playlist metadata
-  PLAYLIST_TRACKS: 1800, // 30 minutes for playlist tracks
-  TRACK_METADATA: 3600, // 1 hour for track details
-  TOP_ITEMS: 7200,     // 2 hours for top tracks/artists
-  USER_PROFILE: 3600   // 1 hour for user data
+  ACCESS_TOKEN: 3300,     // 55 minutes (Spotify tokens last 1 hour)
+  REFRESH_TOKEN: 604800,  // 1 week
+  RATE_LIMIT: 60,        // 1 minute for rate limiting
+  USER_PROFILE: 3600,    // 1 hour
+  PLAYLISTS: 600,        // 5 minutes
+  TRACKS: 300,           // 5 minutes
+  APP_SETTINGS: 300,     // 5 minutes
+  ERROR_TRACKING: 86400  // 24 hours
 };
 
-// Cache statistics
+// Enhanced cache statistics
 let cacheStats = {
   hits: 0,
-  misses: 0
+  misses: 0,
+  errors: 0,
+  rateLimitHits: 0,
+  authHits: 0,
+  lastAccess: null,
+  lastError: null
 };
 
 class CacheService {
-  static async getOrSet(key, fetchFunction, duration = CACHE_DURATION.PLAYLISTS) {
-    const cachedData = cache.get(key);
-    if (cachedData !== undefined) {
-      cacheStats.hits++;
-      console.log(` Cache HIT for ${key} (Total hits: ${cacheStats.hits})`);
-      return cachedData;
-    }
-
-    cacheStats.misses++;
-    console.log(` Cache MISS for ${key} (Total misses: ${cacheStats.misses})`);
-    
+  static async get(key) {
     try {
-      const freshData = await fetchFunction();
-      if (freshData !== undefined && freshData !== null) {
-        cache.set(key, freshData, duration);
-        console.log(` Cached data for ${key} (TTL: ${duration}s)`);
+      const value = cache.get(key);
+      if (value !== undefined) {
+        cacheStats.hits++;
+        cacheStats.lastAccess = Date.now();
+        return value;
       }
-      return freshData;
+      cacheStats.misses++;
+      return null;
     } catch (error) {
-      console.error(` Error fetching data for cache key ${key}:`, error);
+      console.error('Cache get error:', error);
+      cacheStats.errors++;
+      return null;
+    }
+  }
+
+  static async set(key, value, ttl = 300) {
+    try {
+      return cache.set(key, value, ttl);
+    } catch (error) {
+      console.error('Cache set error:', error);
+      cacheStats.errors++;
+      return false;
+    }
+  }
+
+  static async getOrSet(key, fetchFunction, duration = 300) {
+    const cached = await this.get(key);
+    if (cached) return cached;
+
+    try {
+      const value = await fetchFunction();
+      await this.set(key, value, duration);
+      return value;
+    } catch (error) {
+      console.error('Cache getOrSet error:', error);
       throw error;
     }
   }
 
-  static invalidate(key) {
-    console.log(` Invalidating cache for key: ${key}`);
-    return cache.del(key);
+  static async checkRateLimit(userId) {
+    const key = CACHE_KEYS.RATE_LIMIT(userId);
+    const count = (await this.get(key)) || 0;
+    
+    if (count >= 100) { // Spotify's rate limit
+      cacheStats.rateLimitHits++;
+      return false;
+    }
+
+    await this.set(key, count + 1, CACHE_DURATION.RATE_LIMIT);
+    return true;
   }
 
-  static invalidateUserData(userId) {
-    console.log(` Invalidating all cache data for user: ${userId}`);
-    const userKeys = cache.keys().filter(key => key.includes(`user:${userId}`));
-    userKeys.forEach(key => cache.del(key));
-    console.log(`Invalidated ${userKeys.length} keys for user ${userId}`);
-  }
-
-  static async getPlaylistTracks(playlistId, offset, limit, snapshotId, fetchFunction) {
-    const key = CACHE_KEYS.PLAYLIST_TRACKS(playlistId, offset, limit, snapshotId);
-    return this.getOrSet(key, fetchFunction, CACHE_DURATION.PLAYLIST_TRACKS);
-  }
-
-  static async getUserPlaylists(userId, fetchFunction) {
-    const key = CACHE_KEYS.USER_PLAYLISTS(userId);
-    return this.getOrSet(key, fetchFunction, CACHE_DURATION.PLAYLISTS);
-  }
-
-  static async getTopItems(userId, type, timeRange, fetchFunction) {
-    const key = type === 'tracks' 
-      ? CACHE_KEYS.TOP_TRACKS(userId, timeRange)
-      : CACHE_KEYS.TOP_ARTISTS(userId, timeRange);
-    return this.getOrSet(key, fetchFunction, CACHE_DURATION.TOP_ITEMS);
-  }
-
-  static async getTrackMetadata(trackId, fetchFunction) {
-    const key = CACHE_KEYS.TRACK_METADATA(trackId);
-    return this.getOrSet(key, fetchFunction, CACHE_DURATION.TRACK_METADATA);
+  static async trackError(userId, error) {
+    const countKey = CACHE_KEYS.ERROR_COUNT(userId);
+    const lastKey = CACHE_KEYS.LAST_ERROR(userId);
+    
+    const count = (await this.get(countKey)) || 0;
+    await this.set(countKey, count + 1, CACHE_DURATION.ERROR_TRACKING);
+    await this.set(lastKey, {
+      timestamp: Date.now(),
+      error: error.message || error.toString()
+    }, CACHE_DURATION.ERROR_TRACKING);
+    
+    cacheStats.errors++;
   }
 
   static getCacheStats() {
     return {
       ...cacheStats,
-      keys: cache.keys().length,
-      hitRatio: cacheStats.hits / (cacheStats.hits + cacheStats.misses) || 0
+      keys: cache.keys(),
+      memoryUsage: process.memoryUsage().heapUsed
     };
   }
 }
@@ -105,6 +136,5 @@ class CacheService {
 module.exports = {
   CacheService,
   CACHE_KEYS,
-  CACHE_DURATION,
-  cache // Export cache instance for debugging
+  CACHE_DURATION
 };

@@ -1,9 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { timeRanges } from '../../constants/timeRanges';
+import { playlistCache, CACHE_KEYS, CACHE_DURATION } from '../../utils/cacheManager';
 
 const TimeRangeSelector = ({ selectedTimeRange, onTimeRangeChange }) => {
   const [showDropdown, setShowDropdown] = useState(false);
+
+  const handleTimeRangeSelect = (range) => {
+    // Try to get cached data for this time range
+    const cachedData = playlistCache.get(CACHE_KEYS.TIME_RANGE_DATA(range.id));
+    
+    // If we have cached data, use it
+    if (cachedData) {
+      onTimeRangeChange(range.id, cachedData);
+    } else {
+      // Otherwise just change the time range and let the parent handle data fetching
+      onTimeRangeChange(range.id);
+    }
+    
+    setShowDropdown(false);
+  };
 
   return (
     <div className="relative">
@@ -41,13 +57,13 @@ const TimeRangeSelector = ({ selectedTimeRange, onTimeRangeChange }) => {
               {timeRanges.map((range) => (
                 <button
                   key={range.id}
-                  onClick={() => {
-                    onTimeRangeChange(range.id);
-                    setShowDropdown(false);
-                  }}
-                  className={`w-full px-4 py-2 text-left hover:bg-white/10 transition-colors ${
-                    selectedTimeRange === range.id ? 'bg-purple-700/30 text-purple-300' : 'text-gray-200'
-                  }`}
+                  onClick={() => handleTimeRangeSelect(range)}
+                  className={`w-full px-4 py-2 text-sm text-left transition-colors duration-200
+                    ${selectedTimeRange === range.id
+                      ? 'bg-purple-500/20 text-purple-200'
+                      : 'text-purple-300 hover:bg-purple-500/10'
+                    }
+                  `}
                 >
                   {range.label}
                 </button>

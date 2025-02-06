@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@headlessui/react": "^2.2.0",
     "@heroicons/react": "^2.0.18",
     "axios": "^1.7.9",
     "framer-motion": "^10.18.0",

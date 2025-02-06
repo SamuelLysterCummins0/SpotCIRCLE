@@ -29,6 +29,7 @@ import MainPageHeader from '../components/mainPage/MainPageHeader';
 import MainPageTrackList from '../components/mainPage/MainPageTrackList';
 import MainPageArtistList from '../components/mainPage/MainPageArtistList';
 import MainPageAlbumList from '../components/mainPage/MainPageAlbumList';
+import { playlistCache, uiStateCache, playerCache, CACHE_DURATION, CACHE_KEYS } from '../utils/cacheManager';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
@@ -55,11 +56,8 @@ const Home = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
 
-  // Cache track data to prevent unnecessary re-fetches
-  const trackCache = useRef(new Map());
-  const albumCache = useRef(new Map());
   const playlistContainerRef = useRef(null);
-  const loadingRef = useRef(null); // Add ref for loading element
+  const loadingRef = useRef(null);
   const loadingTimeoutRef = useRef(null);
   const lastVisibleTrackRef = useRef(null);
 
@@ -72,7 +70,8 @@ const Home = () => {
       if (!track?.album?.id) return;
       
       const albumId = track.album.id;
-      const cachedAlbum = albumCache.current.get(albumId);
+      const cacheKey = `album:${albumId}`;
+      const cachedAlbum = uiStateCache.get(cacheKey);
       
       if (cachedAlbum) {
         albumsMap.set(albumId, {
@@ -85,7 +84,7 @@ const Home = () => {
           playCount: 1,
           artists: track.artists
         };
-        albumCache.current.set(albumId, albumData);
+        uiStateCache.set(cacheKey, albumData, CACHE_DURATION.UI_STATE);
         albumsMap.set(albumId, albumData);
       }
     });
@@ -101,24 +100,20 @@ const Home = () => {
       setLoading(true);
       setError(null);
       
-      // Check cache first
-      const cacheKey = `${selectedTimeRange}_data`;
-      const cachedData = trackCache.current.get(cacheKey);
+      // Use CacheManager instead of local ref cache
+      const cacheKey = CACHE_KEYS.TIME_RANGE_DATA(selectedTimeRange);
+      const cachedData = await uiStateCache.get(cacheKey);
       
       if (cachedData) {
-        const { tracks, artists, timestamp } = cachedData;
-        const now = Date.now();
-        // Use cache if it's less than 5 minutes old
-        if (now - timestamp < 5 * 60 * 1000) {
-          setTopTracks(tracks);
-          setTopArtists(artists);
-          setTopAlbums(processTopAlbums(tracks));
-          setLoading(false);
-          return;
-        }
+        const { tracks, artists } = cachedData;
+        setTopTracks(tracks);
+        setTopArtists(artists);
+        setTopAlbums(processTopAlbums(tracks));
+        setLoading(false);
+        return;
       }
       
-      // Fetch fresh data if cache is stale or missing
+      // Fetch fresh data if cache is missing
       const [topTracksData, topArtistsData] = await Promise.all([
         fetchData(`/api/tracks/top?time_range=${selectedTimeRange}&limit=28`),
         fetchData(`/api/artists/top?time_range=${selectedTimeRange}&limit=21`)
@@ -129,12 +124,11 @@ const Home = () => {
         const processedAlbums = processTopAlbums(topTracksData);
         setTopAlbums(processedAlbums);
         
-        // Update cache
-        trackCache.current.set(cacheKey, {
+        // Update cache using CacheManager
+        await uiStateCache.set(cacheKey, {
           tracks: topTracksData,
-          artists: topArtistsData,
-          timestamp: Date.now()
-        });
+          artists: topArtistsData
+        }, CACHE_DURATION.TIME_RANGE);
       }
       
       if (topArtistsData && Array.isArray(topArtistsData)) {
@@ -149,11 +143,10 @@ const Home = () => {
     }
   }, [selectedTimeRange, processTopAlbums]);
 
-  // Clean up caches when component unmounts
+  // Clean up only albumCache when component unmounts
   useEffect(() => {
     return () => {
-      trackCache.current.clear();
-      albumCache.current.clear();
+      // No need to clear albumCache since we're using CacheManager
     };
   }, []);
 
@@ -211,12 +204,23 @@ const Home = () => {
   useEffect(() => {
     const fetchPlaylists = async () => {
       try {
+        // Check cache first
+        const cacheKey = CACHE_KEYS.USER_PLAYLISTS;
+        const cachedPlaylists = await playlistCache.get(cacheKey);
+        
+        if (cachedPlaylists) {
+          setPlaylists(cachedPlaylists);
+          return;
+        }
+
         const response = await api.get('/api/spotify/playlists', {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('spotify_access_token')}`
           }
         });
-        console.log('Playlists response:', response.data);  // Debug log
+        
+        // Cache the playlists
+        await playlistCache.set(cacheKey, response.data, CACHE_DURATION.PLAYLIST);
         setPlaylists(response.data);
       } catch (error) {
         console.error('Error fetching playlists:', error.response || error);

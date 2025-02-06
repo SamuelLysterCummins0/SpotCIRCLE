@@ -8,3 +8,6 @@
 8. Make sure to not make any duplicates.
 9.Please analyze the following code changes and identify any incompatibilities or breaking changes that could affect the broader project's functionality and interfaces. Provide specific warnings about critical issues and suggest improvements that maintain system stability.
 10. Throughly Double check any changes to @Home.js as this file is very large and any changes usually cause erros.
+11. If I think any code needs changing double check to see if im wrong before making changes.
+12. Look through and analyze files in full rather then just the start of them.
+13. shouldn't have removed those parts as they're essential for the functionality.

@@ -1,7 +1,9 @@
 const axios = require('axios');
 const Track = require('../models/Track');
 const spotifyApi = require('../config/spotify');
-const { CacheService } = require('../utils/cache');
+const { CacheService, CACHE_KEYS, CACHE_DURATION } = require('../utils/cache');
+const RequestQueue = require('../utils/requestQueue');
+const queue = new RequestQueue();
 
 const getSpotifyApi = (access_token) => {
   return axios.create({
@@ -354,270 +356,195 @@ exports.getUserPlaylists = async (req, res) => {
     req.spotifyApi.setAccessToken(access_token);
     
     try {
-      const playlists = await CacheService.getUserPlaylists(userId, async () => {
-        const data = await req.spotifyApi.getUserPlaylists({ limit: 50 });
-        const playlistsWithDetails = await Promise.all(
-          data.body.items
-            .filter(Boolean)
-            .map(async playlist => {
-              // Get the most recent track's added date
-              let lastModified = new Date().toISOString();
-              try {
-                // Calculate the offset to get the most recent tracks
-                const totalTracks = playlist.tracks.total;
-                const limit = 100; // Spotify API limit
-                const offset = Math.max(0, totalTracks - limit);
+      // Check rate limit before proceeding
+      if (!await CacheService.checkRateLimit(userId)) {
+        return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+      }
 
-                // Get the most recent batch of tracks
-                const tracks = await req.spotifyApi.getPlaylistTracks(playlist.id, {
-                  offset: offset,
-                  limit: limit,
-                  fields: 'items(added_at)',
-                  market: 'from_token'
-                });
+      const cacheKey = CACHE_KEYS.USER_PLAYLISTS(userId);
+      const cached = await CacheService.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
 
-                if (tracks.body.items && tracks.body.items.length > 0) {
-                  // Sort by added_at in descending order to get the most recent
-                  const sortedTracks = tracks.body.items.sort((a, b) => 
-                    new Date(b.added_at) - new Date(a.added_at)
-                  );
-                  lastModified = sortedTracks[0].added_at;
-                }
-              } catch (error) {
-                console.warn(`Could not fetch tracks for playlist ${playlist.id}:`, error);
-              }
-
-              return {
-                id: playlist.id,
-                name: playlist.name,
-                description: playlist.description,
-                images: playlist.images,
-                tracks: playlist.tracks,
-                owner: playlist.owner,
-                followers: playlist.followers,
-                snapshot_id: playlist.snapshot_id,
-                last_modified: lastModified
-              };
-            })
-        );
-        return playlistsWithDetails;
+      // First, get basic playlist info quickly
+      const data = await req.spotifyApi.getUserPlaylists({ 
+        limit: 20,
+        fields: 'items(id,name,images,owner,tracks.total)'
       });
       
-      res.json(playlists);
-    } catch (apiError) {
-      if (apiError.statusCode === 429) {
-        const retryAfter = parseInt(apiError.headers?.['retry-after'] || '3');
-        console.log(`Rate limited. Waiting ${retryAfter} seconds before retry...`);
+      // Send basic playlist data immediately
+      const basicPlaylists = data.body.items.map(playlist => ({
+        id: playlist.id,
+        name: playlist.name,
+        images: playlist.images,
+        owner: playlist.owner,
+        tracks: { total: playlist.tracks.total },
+        // Default values until details are loaded
+        description: '',
+        collaborative: false,
+        public: true,
+        saves: 0,
+        snapshot_id: '',
+        last_modified: new Date().toISOString()
+      }));
+
+      // Send the basic data immediately
+      res.json(basicPlaylists);
+
+      // Then load details in the background and cache them
+      const playlistsWithDetails = [];
+      for (const playlist of data.body.items) {
+        if (!playlist) continue;
         
-        if (retryAfter > 3600) {
-          res.status(429).json({
-            error: 'Rate limit exceeded',
-            message: 'The Spotify API rate limit has been exceeded. Please try again later.',
-            retryAfter
+        try {
+          const details = await queue.add(async () => {
+            // Get additional playlist details
+            const playlistDetails = await req.spotifyApi.getPlaylist(playlist.id, {
+              fields: 'collaborative,public,followers(total),description,tracks(total),snapshot_id'
+            });
+
+            // Get last modified only if playlist has tracks
+            let lastModified = new Date().toISOString();
+            if (playlistDetails.body.tracks.total > 0) {
+              const tracks = await req.spotifyApi.getPlaylistTracks(playlist.id, {
+                offset: Math.max(0, playlistDetails.body.tracks.total - 1),
+                limit: 1,
+                fields: 'items(added_at)',
+                market: 'from_token'
+              });
+              lastModified = tracks.body.items?.[0]?.added_at || lastModified;
+            }
+
+            return { playlistDetails, lastModified };
           });
-          return;
+
+          playlistsWithDetails.push({
+            id: playlist.id,
+            name: playlist.name,
+            description: details.playlistDetails.body.description,
+            images: playlist.images,
+            tracks: { total: details.playlistDetails.body.tracks.total },
+            owner: playlist.owner,
+            collaborative: details.playlistDetails.body.collaborative,
+            public: details.playlistDetails.body.public,
+            saves: details.playlistDetails.body.followers.total,
+            snapshot_id: details.playlistDetails.body.snapshot_id,
+            last_modified: details.lastModified
+          });
+        } catch (error) {
+          console.warn(`Error fetching details for playlist ${playlist.id}:`, error);
+          continue;
         }
-        
-        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-        const retryPlaylists = await CacheService.getUserPlaylists(userId, async () => {
-          const retryData = await req.spotifyApi.getUserPlaylists({ limit: 50 });
-          const retryPlaylistsWithDetails = await Promise.all(
-            retryData.body.items
-              .filter(Boolean)
-              .map(async playlist => {
-                // Get the most recent track's added date
-                let lastModified = new Date().toISOString();
-                try {
-                  // Calculate the offset to get the most recent tracks
-                  const totalTracks = playlist.tracks.total;
-                  const limit = 100; // Spotify API limit
-                  const offset = Math.max(0, totalTracks - limit);
-
-                  // Get the most recent batch of tracks
-                  const tracks = await req.spotifyApi.getPlaylistTracks(playlist.id, {
-                    offset: offset,
-                    limit: limit,
-                    fields: 'items(added_at)',
-                    market: 'from_token'
-                  });
-
-                  if (tracks.body.items && tracks.body.items.length > 0) {
-                    // Sort by added_at in descending order to get the most recent
-                    const sortedTracks = tracks.body.items.sort((a, b) => 
-                      new Date(b.added_at) - new Date(a.added_at)
-                    );
-                    lastModified = sortedTracks[0].added_at;
-                  }
-                } catch (error) {
-                  console.warn(`Could not fetch tracks for playlist ${playlist.id}:`, error);
-                }
-
-                return {
-                  id: playlist.id,
-                  name: playlist.name,
-                  description: playlist.description,
-                  images: playlist.images,
-                  tracks: playlist.tracks,
-                  owner: playlist.owner,
-                  followers: playlist.followers,
-                  snapshot_id: playlist.snapshot_id,
-                  last_modified: lastModified
-                };
-              })
-          );
-          return retryPlaylistsWithDetails;
-        });
-        
-        res.json(retryPlaylists);
-      } else {
-        throw apiError;
       }
+
+      // Cache the detailed results for future requests
+      await CacheService.set(cacheKey, playlistsWithDetails, CACHE_DURATION.PLAYLISTS);
+
+    } catch (error) {
+      // Track the error
+      CacheService.trackError(userId, error);
+      
+      if (error.statusCode === 401) {
+        return res.status(401).json({ error: 'Unauthorized. Please re-authenticate.' });
+      }
+      throw error;
     }
   } catch (error) {
-    console.error('Error fetching playlists:', error);
-    const statusCode = error.statusCode || 500;
-    res.status(statusCode).json({
-      error: 'Failed to fetch playlists',
-      details: error.message
-    });
+    console.error('Error in getUserPlaylists:', error);
+    res.status(500).json({ error: 'Failed to fetch playlists' });
   }
 };
 
 exports.getPlaylistTracks = async (req, res) => {
   try {
-    const { access_token } = req.user;
+    const { access_token, id: userId } = req.user;
     const { playlistId } = req.params;
-    const offset = parseInt(req.query.offset) || 0;
-    const limit = Math.min(parseInt(req.query.limit) || 50, 50);
+    const { offset = 0, limit = 50 } = req.query;
     
     req.spotifyApi.setAccessToken(access_token);
 
-    // Get playlist info from cache or API
-    const playlistInfo = await CacheService.getOrSet(
-      `playlist:${playlistId}:info`,
-      async () => {
-        const info = await req.spotifyApi.getPlaylist(playlistId, { fields: 'tracks.total' });
-        return info.body;
-      }
-    );
-    
+    // Check rate limit before proceeding
+    if (!await CacheService.checkRateLimit(userId)) {
+      return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+    }
+
+    const cacheKey = CACHE_KEYS.PLAYLIST_TRACKS(playlistId, offset, limit);
+    const cached = await CacheService.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     try {
-      // Create the fetch function before passing it
-      const fetchPlaylistTracks = async () => {
-        const data = await req.spotifyApi.getPlaylistTracks(playlistId, {
-          offset: offset,
-          limit: limit,
-          fields: 'items(added_at,track(id,name,artists,album,duration_ms,uri))',
+      // Get tracks with full details using queue to prevent rate limiting
+      const response = await queue.add(async () => 
+        req.spotifyApi.getPlaylistTracks(playlistId, {
+          offset: parseInt(offset),
+          limit: parseInt(limit),
+          fields: 'items(added_at,added_by,track(id,name,artists(id,name,uri),album(id,name,images,uri),duration_ms,uri,preview_url)),total',
           market: 'from_token'
+        })
+      );
+
+      // Process tracks to ensure all required data is present
+      const items = response.body.items
+        .filter(item => item && item.track)
+        .map(item => {
+          const track = item.track;
+          return {
+            id: track.id,
+            name: track.name,
+            artists: track.artists.map(artist => ({
+              id: artist.id,
+              name: artist.name,
+              uri: artist.uri
+            })),
+            album: {
+              id: track.album.id,
+              name: track.album.name,
+              images: track.album.images,
+              uri: track.album.uri
+            },
+            duration_ms: track.duration_ms,
+            uri: track.uri,
+            preview_url: track.preview_url,
+            added_at: item.added_at,
+            added_by: item.added_by
+          };
         });
 
-        const tracks = data.body.items
-          .filter(item => item && item.track)
-          .map(item => item.track)
-          .filter(track => 
-            track && 
-            track.uri && 
-            typeof track.uri === 'string' && 
-            !track.uri.includes('spotify:local') && 
-            track.uri.startsWith('spotify:track:')
-          );
-
-        // Map the tracks to include added_at
-        const tracksWithDates = data.body.items.map(item => ({
-          ...item.track,
-          added_at: item.added_at
-        }));
-
-        // Add small delay to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const nextOffset = offset + tracks.length;
-        const hasMore = nextOffset < playlistInfo.tracks.total;
-
-        return { tracks: tracksWithDates, nextOffset, hasMore };
+      const result = {
+        items,
+        total: response.body.total
       };
 
-      const { tracks, nextOffset, hasMore } = await CacheService.getPlaylistTracks(
-        playlistId,
-        offset,
-        limit,
-        null, // No snapshot ID for now
-        fetchPlaylistTracks // Pass the function reference, not its execution
-      );
+      // Cache the processed results for a shorter time since it's paginated
+      await CacheService.set(cacheKey, result, CACHE_DURATION.TRACKS);
+      res.json(result);
+
+    } catch (error) {
+      // Track the error
+      CacheService.trackError(userId, error);
       
-      console.log(`Loaded ${tracks.length} tracks (offset: ${offset}, total: ${playlistInfo.tracks.total})`);
-      
-      res.json({
-        tracks,
-        total: playlistInfo.tracks.total,
-        offset: nextOffset,
-        hasMore
-      });
-
-    } catch (apiError) {
-      if (apiError.statusCode === 429) {
-        const retryAfter = apiError.headers?.['retry-after'] || 3;
-        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-        
-        // Create retry fetch function
-        const retryFetchPlaylistTracks = async () => {
-          const retryData = await req.spotifyApi.getPlaylistTracks(playlistId, {
-            offset: offset,
-            limit: limit,
-            fields: 'items(added_at,track(id,name,artists,album,duration_ms,uri))',
-            market: 'from_token'
-          });
-          
-          const tracks = retryData.body.items
-            .filter(item => item && item.track)
-            .map(item => item.track)
-            .filter(track => 
-              track && 
-              track.uri && 
-              typeof track.uri === 'string' && 
-              !track.uri.includes('spotify:local') && 
-              track.uri.startsWith('spotify:track:')
-            );
-
-          // Map the tracks to include added_at
-          const tracksWithDates = retryData.body.items.map(item => ({
-            ...item.track,
-            added_at: item.added_at
-          }));
-
-          return {
-            tracks: tracksWithDates,
-            nextOffset: offset + tracks.length,
-            hasMore: offset + tracks.length < playlistInfo.tracks.total
-          };
-        };
-
-        const { tracks: retryTracks, nextOffset, hasMore } = await CacheService.getPlaylistTracks(
-          playlistId,
-          offset,
-          limit,
-          null,
-          retryFetchPlaylistTracks
-        );
-
-        res.json({
-          tracks: retryTracks,
-          total: playlistInfo.tracks.total,
-          offset: nextOffset,
-          hasMore
-        });
-      } else {
-        throw apiError;
+      if (error.statusCode === 401) {
+        return res.status(401).json({ error: 'Unauthorized. Please re-authenticate.' });
       }
+      if (error.statusCode === 502) {
+        // Retry with exponential backoff for 502 errors
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return exports.getPlaylistTracks(req, res);
+      }
+      throw error;
     }
   } catch (error) {
-    console.error('Error fetching playlist tracks:', error);
-    const statusCode = error.statusCode || 500;
-    const errorMessage = statusCode === 429 ? 'Rate limit exceeded. Please try again later.' : 'Failed to fetch playlist tracks';
-    res.status(statusCode).json({
-      error: errorMessage,
-      details: error.message
-    });
+    console.error('Error in getPlaylistTracks:', error);
+    if (error.statusCode === 429) {
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded',
+        retryAfter: parseInt(error.response?.headers?.['retry-after']) || 60
+      });
+    }
+    res.status(500).json({ error: 'Failed to fetch playlist tracks' });
   }
 };
 

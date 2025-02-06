@@ -19,6 +19,9 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     secondary: 'rgba(255, 255, 255, 0.7)',
     button: 'white'
   });
+  const [previousTrack, setPreviousTrack] = useState(null);
+  const transitionTimeoutRef = useRef(null);
+  
   const containerRef = useRef(null);
   const progressBarRef = useRef(null);
   const volumeBarRef = useRef(null);
@@ -121,28 +124,63 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     setTimeout(() => setIsChangingTrack(false), 500);
   };
 
-  const handleNext = () => handleTrackChange(onNext);
-  const handlePrevious = () => handleTrackChange(onPrevious);
+  const handleNext = useCallback(() => {
+    setIsChangingTrack(true);
+    onNext();
+  }, [onNext]);
+
+  const handlePrevious = useCallback(() => {
+    setIsChangingTrack(true);
+    onPrevious();
+  }, [onPrevious]);
 
   useEffect(() => {
-    const handleGlobalScroll = (e) => {
-      if (isExpanded && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        if (
-          e.clientX >= rect.left && 
-          e.clientX <= rect.right && 
-          e.clientY >= rect.top && 
-          e.clientY <= rect.bottom
-        ) {
-          const newPosition = Math.min(
-            Math.max(scrollPosition + e.deltaY * 0.5, 0),
-            200
-          );
-          setScrollPosition(newPosition);
-        }
+    if (!track || !previousTrack || track.id === previousTrack?.id) {
+      setPreviousTrack(track);
+      return;
+    }
+
+    // Start transition
+    setIsChangingTrack(true);
+
+    // Clear any existing timeout
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+
+    // Set a timeout to ensure UI elements are loaded
+    transitionTimeoutRef.current = setTimeout(() => {
+      setPreviousTrack(track);
+      setIsChangingTrack(false);
+    }, 150); // 150ms delay for smooth transition
+
+    // Cleanup
+    return () => {
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
       }
     };
+  }, [track]);
 
+  const handleGlobalScroll = (e) => {
+    if (isExpanded && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left && 
+        e.clientX <= rect.right && 
+        e.clientY >= rect.top && 
+        e.clientY <= rect.bottom
+      ) {
+        const newPosition = Math.min(
+          Math.max(scrollPosition + e.deltaY * 0.5, 0),
+          200
+        );
+        setScrollPosition(newPosition);
+      }
+    }
+  };
+
+  useEffect(() => {
     if (isExpanded) {
       window.addEventListener('wheel', handleGlobalScroll);
       document.body.style.overflow = 'hidden';
