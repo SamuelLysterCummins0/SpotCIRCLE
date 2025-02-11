@@ -1,43 +1,49 @@
+const Queue = require('better-queue');
+
+/**
+ * A queue for managing Spotify API requests with rate limiting handling
+ */
 class RequestQueue {
   constructor() {
-    this.queue = [];
-    this.processing = false;
-  }
-
-  async add(request) {
-    return new Promise((resolve, reject) => {
-      this.queue.push({ request, resolve, reject });
-      if (!this.processing) this.process();
+    this.queue = new Queue(async (task, cb) => {
+      try {
+        const result = await this.executeWithRetry(task);
+        cb(null, result);
+      } catch (error) {
+        cb(error);
+      }
+    }, {
+      concurrent: 3,
+      maxRetries: 3,
+      retryDelay: 1000,
+      afterProcessDelay: 100 // Add small delay between requests
     });
   }
 
-  async process() {
-    if (this.queue.length === 0) {
-      this.processing = false;
-      return;
-    }
-
-    this.processing = true;
-    const { request, resolve, reject } = this.queue.shift();
-
+  async executeWithRetry(task) {
     try {
-      // Add delay between requests to prevent rate limiting
-      await new Promise(r => setTimeout(r, 100));
-      const result = await request();
-      resolve(result);
+      return await task.execute();
     } catch (error) {
-      if (error.response?.status === 429) {
-        const retryAfter = parseInt(error.response.headers['retry-after']) || 3;
-        console.log(`Rate limited. Retrying in ${retryAfter} seconds...`);
-        this.queue.unshift({ request, resolve, reject });
-        await new Promise(r => setTimeout(r, Math.min(retryAfter * 1000, 60000)));
-      } else {
-        reject(error);
+      if (error.statusCode === 429 || (error.response && error.response.status === 429)) {
+        const retryAfter = parseInt(error.headers?.['retry-after'] || error.response?.headers?.['retry-after']) || 3;
+        console.log(`Rate limited. Waiting ${retryAfter} seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return await task.execute();
       }
+      throw error;
     }
+  }
 
-    this.process();
+  addToQueue(execute) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ execute }, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
   }
 }
 
-module.exports = RequestQueue;
+// Create a singleton instance
+const requestQueue = new RequestQueue();
+module.exports = requestQueue;

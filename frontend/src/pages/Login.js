@@ -10,6 +10,21 @@ const Login = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const checkTokenExpiration = useCallback(() => {
+    const expiresAt = localStorage.getItem('spotify_token_expires_at');
+    if (!expiresAt) return false;
+
+    // Add 1 minute buffer before expiration
+    const isValid = parseInt(expiresAt) > (Date.now() + 60000);
+    if (!isValid) {
+      // Clear expired tokens
+      localStorage.removeItem('spotify_access_token');
+      localStorage.removeItem('spotify_token_expires_at');
+      return false;
+    }
+    return true;
+  }, []);
+
   useEffect(() => {
     const checkAuth = async () => {
       const urlParams = new URLSearchParams(location.search);
@@ -17,6 +32,7 @@ const Login = () => {
       const accessToken = urlParams.get('access_token');
       const refreshToken = urlParams.get('refresh_token');
       const userId = urlParams.get('user_id');
+      const expiresAt = urlParams.get('expires_at');
 
       if (error) {
         console.error('Auth error:', error);
@@ -29,9 +45,10 @@ const Login = () => {
       }
 
       if (accessToken && refreshToken) {
-        // Store tokens
+        // Store tokens and expiration
         localStorage.setItem('spotify_access_token', accessToken);
         localStorage.setItem('spotify_refresh_token', refreshToken);
+        localStorage.setItem('spotify_token_expires_at', expiresAt);
         if (userId) {
           localStorage.setItem('spotify_user_id', userId);
         }
@@ -44,15 +61,19 @@ const Login = () => {
         return;
       }
 
-      // Check if we're already logged in
+      // Check if we're already logged in with a valid token
       const existingToken = localStorage.getItem('spotify_access_token');
-      if (existingToken) {
+      if (existingToken && checkTokenExpiration()) {
         navigate('/home');
+      } else if (existingToken) {
+        // Token exists but is expired - clear it
+        localStorage.removeItem('spotify_access_token');
+        localStorage.removeItem('spotify_token_expires_at');
       }
     };
 
     checkAuth();
-  }, [location, navigate]);
+  }, [navigate, location.search, checkTokenExpiration]);
 
   const handleLogin = async () => {
     try {

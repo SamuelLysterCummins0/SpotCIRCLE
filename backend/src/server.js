@@ -5,9 +5,9 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const SpotifyWebApi = require('spotify-web-api-node');
 const authRoutes = require('./routes/auth');
+const spotifyRoutes = require('./routes/spotify');
 const tracksRoutes = require('./routes/tracks');
 const artistsRoutes = require('./routes/artists');
-const spotifyRoutes = require('./routes/spotify');
 
 // Load environment variables
 dotenv.config();
@@ -49,7 +49,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/tracks', tracksRoutes);
 app.use('/api/artists', artistsRoutes);
-app.use('/api/spotify', spotifyRoutes);
+app.use(['/api/spotify', '/api'], spotifyRoutes);  // Handle both /api/spotify and /api/genius paths
 
 // Basic route
 app.get('/', (req, res) => {

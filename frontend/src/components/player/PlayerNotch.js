@@ -14,6 +14,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [volume, setVolume] = useState(100);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const [lyrics, setLyrics] = useState([]);
   const [textColors, setTextColors] = useState({
     primary: 'white',
     secondary: 'rgba(255, 255, 255, 0.7)',
@@ -201,7 +202,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     
     const newPosition = Math.min(
       Math.max(scrollPosition + e.deltaY * 0.5, 0),
-      200 
+      400
     );
     setScrollPosition(newPosition);
   };
@@ -558,11 +559,13 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   }, []);
 
   useEffect(() => {
-    if (isInitialMount && track?.album?.images?.[0]?.url) {
+    if (track?.album?.images?.[0]?.url) {
       extractColors(track.album.images[0].url);
-      setIsInitialMount(false);
+      if (isInitialMount) {
+        setIsInitialMount(false);
+      }
     }
-  }, [isInitialMount, track]);
+  }, [track, isInitialMount, extractColors]);
 
   const rgbToHsl = (r, g, b) => {
     r /= 255;
@@ -591,61 +594,44 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
     return [h, s, l];
   };
 
-  // Track reference for memoization
-  const trackRef = useRef(track);
-  const lastImageUrlRef = useRef(null);
-  const extractionTimeoutRef = useRef(null);
-
-  // Memoize track info to prevent unnecessary re-renders
-  const trackInfo = React.useMemo(() => {
-    if (!track) return null;
-    return {
-      name: track.name || '',
-      artist: track.artists?.[0]?.name || '',
-      imageUrl: track.album?.images?.[0]?.url || '',
-      duration: track.duration_ms || 0
-    };
-  }, [track?.uri]); // Only update when track URI changes
-
-  // Optimize color extraction timing
-  useEffect(() => {
-    if (!track?.album?.images?.[0]?.url) return;
-    
-    const imageUrl = track.album.images[0].url;
-    if (imageUrl === lastImageUrlRef.current) return;
-    
-    // Clear any pending extraction
-    if (extractionTimeoutRef.current) {
-      clearTimeout(extractionTimeoutRef.current);
+  // Fetch lyrics function
+  const fetchLyrics = useCallback(async () => {
+    if (!track?.name || !track?.artists?.[0]?.name) {
+      setLyrics([]);
+      return;
     }
+    
+    try {
+      console.log('Fetching lyrics for:', {
+        title: track.name,
+        artist: track.artists[0].name
+      });
 
-    // Update reference immediately for fast switching
-    lastImageUrlRef.current = imageUrl;
-    trackRef.current = track;
-
-    // Delay color extraction slightly to prioritize UI update
-    extractionTimeoutRef.current = setTimeout(() => {
-      if (trackRef.current === track) {
-        extractColors(imageUrl);
+      const response = await axios.get('/api/genius/search', {
+        params: {
+          title: track.name,
+          artist: track.artists[0].name
+        }
+      });
+      
+      if (response.data?.lyrics?.length > 0) {
+        setLyrics(response.data.lyrics);
+      } else {
+        console.log('No lyrics found in response');
+        setLyrics([]);
       }
-    }, 100);
+    } catch (error) {
+      console.error('Failed to fetch lyrics:', error.response || error);
+      setLyrics([]);
+    }
+  }, [track?.name, track?.artists]);
 
-    return () => {
-      if (extractionTimeoutRef.current) {
-        clearTimeout(extractionTimeoutRef.current);
-      }
-    };
-  }, [track?.uri, extractColors]);
-
-  // Optimize progress updates
-  const updateProgress = useCallback(
-    debounce((newProgress) => {
-      if (trackRef.current === track) {
-        setProgress(newProgress);
-      }
-    }, 50),
-    [track?.uri]
-  );
+  // Fetch lyrics when track changes
+  useEffect(() => {
+    if (track) {
+      fetchLyrics();
+    }
+  }, [track?.uri, fetchLyrics]);
 
   const handleDragEnd = async () => {
     if (isDragging) {
@@ -679,7 +665,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
         initial={{ width: '400px', height: '70px', y: 0 }}
         animate={{
           width: isExpanded ? '700px' : '400px',
-          height: isExpanded ? '400px' : '70px',
+          height: isExpanded ? '500px' : '70px',
           y: 0
         }}
         transition={{ type: 'spring', stiffness: 200, damping: 25 }}
@@ -988,6 +974,46 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
               </motion.div>
             )}
           </AnimatePresence>
+         {/* Lyrics section */}
+        {isExpanded && (
+          <div 
+            className="px-6 py-4 mt-4"
+            onWheel={(e) => e.stopPropagation()}  // Stop scroll event from affecting parent
+          >
+            <h3 
+              className="text-lg font-semibold mb-4"
+              style={{ color: textColors.primary }}
+            >
+              Lyrics
+            </h3>
+            <div 
+              className="lyrics-container space-y-9 max-h-[240px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent"
+            >
+              {lyrics.length > 0 ? (
+                lyrics.map((lyric, index) => (
+                  <motion.div
+                    key={index}
+                    whileHover={{ 
+                      color: 'rgba(255, 255, 255, 1)',
+                      scale: 1.05,
+                      transition: { duration: 0.1 }
+                    }}
+                    className="text-center transition-all"
+                    style={{ color: textColors.secondary, color: textColors.secondary === 'white' ? 'rgba(255, 255, 255, 1)' : textColors.secondary }}
+                  >
+                    <p 
+                      className="text-lg font-medium"
+                    >
+                      {lyric.text}
+                    </p>
+                  </motion.div>
+                ))
+              ) : (
+                <p className="text-center text-gray-400">No lyrics available</p>
+              )}
+            </div>
+          </div>
+          )}
         </motion.div>
       </motion.div>
     </div>

@@ -1,11 +1,12 @@
 // Cache durations in milliseconds
 export const CACHE_DURATION = {
-  PLAYLIST: 15 * 60 * 1000, // 5 minutes
+  PLAYLIST: 15 * 60 * 1000,    // 15 minutes (matching backend)
+  PLAYLIST_DETAILS: 15 * 60 * 1000, // 15 minutes (matching backend)
   UI_STATE: 24 * 60 * 60 * 1000, // 24 hours
   PLAYER: 30 * 60 * 1000,      // 30 minutes
   SEARCH: 7 * 24 * 60 * 60 * 1000, // 7 days
-  STATS: 10 * 60 * 1000,    // 5 minutes
-  HEADER: 10 * 60 * 1000,    // 5 minutes
+  STATS: 10 * 60 * 1000,    // 10 minutes
+  HEADER: 10 * 60 * 1000,    // 10 minutes
   TIME_RANGE: 30 * 60 * 1000 // 30 minutes
 };
 
@@ -14,7 +15,9 @@ export const CACHE_KEYS = {
   TRACKS: (playlistId) => `tracks:${playlistId}`,
   STATS: (playlistId) => `playlist:${playlistId}:stats`,
   HEADER_STATS: (playlistId) => `playlist:${playlistId}:header_stats`,
-  TIME_RANGE_DATA: (timeRange) => `time_range:${timeRange}:data`
+  TIME_RANGE_DATA: (timeRange) => `time_range:${timeRange}:data`,
+  PLAYLIST_MINIMAL: 'playlists:minimal',
+  PLAYLIST_DETAILS: 'playlists:details'
 };
 
 class CacheManager {
@@ -169,6 +172,25 @@ class CacheManager {
         this.storage.removeItem(key);
       }
     });
+  }
+
+  clearOnTokenRefresh() {
+    this.memoryCache.clear();
+    Object.keys(this.storage).forEach(key => {
+      if (key.startsWith(this.prefix)) {
+        this.storage.removeItem(key);
+      }
+    });
+    this.stats = {
+      hits: 0,
+      misses: 0,
+      memoryHits: 0,
+      storageHits: 0,
+      writes: 0,
+      errors: 0,
+      lastAccessed: null,
+      lastWrite: null
+    };
   }
 }
 

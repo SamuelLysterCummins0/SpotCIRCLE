@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
+const spotifyRoutes = require('./routes/spotify');
+const artistsRoutes = require('./routes/artists');
 const tracksRoutes = require('./routes/tracks');
 
 const app = express();
@@ -49,6 +51,8 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/spotify', spotifyRoutes);
+app.use('/api/artists', artistsRoutes);
 app.use('/api/tracks', tracksRoutes);
 
 // Error handling middleware

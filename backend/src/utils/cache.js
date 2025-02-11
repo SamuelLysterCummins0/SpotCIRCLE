@@ -20,7 +20,8 @@ const CACHE_KEYS = {
   // User Data
   USER_PROFILE: (userId) => `user:${userId}:profile`,
   USER_PREFERENCES: (userId) => `user:${userId}:preferences`,
-  USER_PLAYLISTS: (userId) => `user:${userId}:playlists`,
+  USER_PLAYLISTS_MINIMAL: (userId) => `user:${userId}:playlists:minimal`,
+  USER_PLAYLISTS_DETAILS: (userId) => `user:${userId}:playlists:details`,
   PLAYLIST_TRACKS: (playlistId, offset, limit) => `playlist:${playlistId}:tracks:${offset}:${limit}`,
   
   // Global Settings
@@ -38,7 +39,8 @@ const CACHE_DURATION = {
   REFRESH_TOKEN: 604800,  // 1 week
   RATE_LIMIT: 60,        // 1 minute for rate limiting
   USER_PROFILE: 3600,    // 1 hour
-  PLAYLISTS: 600,        // 5 minutes
+  PLAYLISTS_MINIMAL: 900, // 5 minutes for minimal playlist data
+  PLAYLISTS_DETAILS: 900, // 15 minutes for detailed data (changes less frequently)
   TRACKS: 300,           // 5 minutes
   APP_SETTINGS: 300,     // 5 minutes
   ERROR_TRACKING: 86400  // 24 hours

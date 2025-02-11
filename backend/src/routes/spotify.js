@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const spotifyController = require('../controllers/spotifyController');
+const geniusController = require('../controllers/geniusController');
 const { authenticateToken } = require('../middleware/auth');
 
 // Debug routes (before auth middleware)
@@ -12,8 +13,12 @@ router.use(authenticateToken);
 
 // Playlist routes
 router.get('/playlists', spotifyController.getUserPlaylists);
+router.get('/playlists/details', spotifyController.getPlaylistsDetails);
 router.get('/playlists/:playlistId/tracks', spotifyController.getPlaylistTracks);
+
+// Track routes
 router.get('/tracks/top', spotifyController.getTopTracks);
+router.get('/tracks/recent', spotifyController.getRecentTracks);
 
 // Player control routes
 router.put('/player/play', spotifyController.play);
@@ -25,6 +30,9 @@ router.put('/player/volume', spotifyController.setVolume);
 router.put('/player/repeat', spotifyController.setRepeatMode);
 router.put('/player/shuffle', spotifyController.setShuffle);
 router.post('/player/queue', spotifyController.addToQueue);
+
+// Lyrics routes (maintain original /api/genius path)
+router.get('/genius/search', geniusController.searchSong);
 
 // Player state routes
 router.get('/player/current', async (req, res) => {

@@ -3,6 +3,7 @@ const Track = require('../models/Track');
 const Artist = require('../models/Artist');
 const Album = require('../models/Album');
 const spotifyApi = require('../config/spotify');
+const { CacheService, CACHE_KEYS } = require('../utils/cache');
 
 // Cache to prevent code reuse
 const usedCodes = new Set();
@@ -18,7 +19,9 @@ const getLoginUrl = (req, res) => {
     'user-read-playback-state',
     'user-modify-playback-state',
     'streaming',
-    'app-remote-control'
+    'app-remote-control',
+    'playlist-read-private',
+    'playlist-read-collaborative'
   ];
   
   const state = Math.random().toString(36).substring(7);
@@ -52,7 +55,7 @@ const handleCallback = async (req, res) => {
     
     // Add code to used codes set
     usedCodes.add(code);
-    
+
     // Clean up old codes (optional)
     if (usedCodes.size > 1000) {
       usedCodes.clear();
@@ -61,7 +64,7 @@ const handleCallback = async (req, res) => {
     const data = await spotifyApi.authorizationCodeGrant(code);
     console.log('Auth code grant response:', data.body);
     
-    const { access_token, refresh_token } = data.body;
+    const { access_token, refresh_token, expires_in } = data.body;
 
     // Set the access token
     spotifyApi.setAccessToken(access_token);
@@ -71,11 +74,23 @@ const handleCallback = async (req, res) => {
     const userResponse = await spotifyApi.getMe();
     const userId = userResponse.body.id;
 
-    // Redirect to frontend with tokens
-    const redirectUrl = `${process.env.FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}&user_id=${userId}`;
+    // Calculate expiration timestamp
+    const expiresAt = Date.now() + (expires_in * 1000);
+
+    // Redirect to frontend with tokens and expiration
+    const redirectUrl = `${process.env.FRONTEND_URL}?` + new URLSearchParams({
+      access_token,
+      refresh_token,
+      expires_in,
+      expires_at: expiresAt,
+      user_id: userId
+    }).toString();
+
     res.redirect(redirectUrl);
   } catch (error) {
-    console.error('Error in callback:', error);
+    console.error('Auth callback error:', error);
+    // Clear code from used codes if exchange failed
+    usedCodes.delete(code);
     res.redirect(`${process.env.FRONTEND_URL}?error=auth_failed`);
   }
 };
@@ -87,11 +102,37 @@ const refreshToken = async (req, res) => {
   try {
     spotifyApi.setRefreshToken(refresh_token);
     const data = await spotifyApi.refreshAccessToken();
-    const { access_token } = data.body;
+    const { access_token, expires_in } = data.body;
+
+    // Calculate expiration timestamp
+    const expiresAt = Date.now() + (expires_in * 1000);
+
+    // Clear all user-specific caches on token refresh
+    try {
+      const base64Url = access_token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+      const userId = payload.sub || payload.id;
+      
+      if (userId) {
+        const userCacheKeys = [
+          CACHE_KEYS.USER_PLAYLISTS_MINIMAL(userId),
+          CACHE_KEYS.USER_PLAYLISTS_DETAILS(userId),
+          CACHE_KEYS.USER_PROFILE(userId),
+          CACHE_KEYS.USER_PREFERENCES(userId)
+        ];
+        
+        await Promise.all(userCacheKeys.map(key => CacheService.set(key, null, 0)));
+      }
+    } catch (e) {
+      console.warn('Could not clear user caches during token refresh:', e);
+    }
 
     res.json({
       access_token,
-      refresh_token
+      refresh_token,
+      expires_in,
+      expires_at: expiresAt
     });
   } catch (error) {
     console.error('Error refreshing token:', error);
@@ -99,85 +140,8 @@ const refreshToken = async (req, res) => {
   }
 };
 
-// Get user's top tracks
-const getTopTracks = async (req, res) => {
-  try {
-    const token = req.headers.authorization.split(' ')[1];
-    const { time_range = 'short_term' } = req.query;
-    
-    spotifyApi.setAccessToken(token);
-    const data = await spotifyApi.getMyTopTracks({
-      limit: 50,
-      time_range: time_range
-    });
-
-    // Transform track data to include necessary fields
-    const transformedTracks = data.body.items.map(track => ({
-      id: track.id,
-      name: track.name,
-      uri: track.uri,
-      duration_ms: track.duration_ms,
-      album: {
-        id: track.album.id,
-        name: track.album.name,
-        images: track.album.images,
-        release_date: track.album.release_date
-      },
-      artists: track.artists.map(artist => ({
-        id: artist.id,
-        name: artist.name,
-        uri: artist.uri
-      }))
-    }));
-
-    res.json(transformedTracks);
-  } catch (error) {
-    console.error('Error fetching top tracks:', error);
-    res.status(500).json({ error: 'Failed to fetch top tracks' });
-  }
-};
-
-// Get user's top artists
-const getTopArtists = async (req, res) => {
-  try {
-    const token = req.headers.authorization.split(' ')[1];
-    const { time_range = 'short_term' } = req.query;
-    
-    spotifyApi.setAccessToken(token);
-    const data = await spotifyApi.getMyTopArtists({
-      limit: 50,
-      time_range
-    });
-
-    res.json(data.body.items);
-  } catch (error) {
-    console.error('Error fetching top artists:', error);
-    res.status(500).json({ error: 'Failed to fetch top artists' });
-  }
-};
-
-// Get user's recent tracks
-const getRecentTracks = async (req, res) => {
-  try {
-    const { access_token } = req.headers.authorization.split(' ')[1];
-    
-    spotifyApi.setAccessToken(access_token);
-    const data = await spotifyApi.getMyRecentlyPlayedTracks({
-      limit: 50
-    });
-
-    res.json(data.body.items);
-  } catch (error) {
-    console.error('Error fetching recent tracks:', error);
-    res.status(500).json({ error: 'Failed to fetch recent tracks' });
-  }
-};
-
 module.exports = {
   getLoginUrl,
   handleCallback,
-  refreshToken,
-  getTopTracks,
-  getTopArtists,
-  getRecentTracks
+  refreshToken
 };

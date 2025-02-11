@@ -65,10 +65,10 @@ const PlaylistHeader = ({ playlist, onBack, tracks, cachedStats }) => {
         {/* Playlist Info */}
         <div className="flex-1 pt-2">
           <h1 className="text-5xl font-bold text-purple-50 mb-4 drop-shadow-[0_2px_4px_rgba(168,85,247,0.4)]">
-            {playlist?.name}
+            {decodeHtmlEntities(playlist?.name)}
           </h1>
           <p className="text-purple-300 mb-6 line-clamp-2 max-w-2xl">
-            {playlist?.description}
+            {decodeHtmlEntities(playlist?.description)}
           </p>
           
           {/* Stats */}

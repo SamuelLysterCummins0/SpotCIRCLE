@@ -2,8 +2,8 @@ const axios = require('axios');
 const Track = require('../models/Track');
 const spotifyApi = require('../config/spotify');
 const { CacheService, CACHE_KEYS, CACHE_DURATION } = require('../utils/cache');
-const RequestQueue = require('../utils/requestQueue');
-const queue = new RequestQueue();
+const requestQueue = require('../utils/requestQueue');
+const SpotifyWebApi = require('spotify-web-api-node');
 
 const getSpotifyApi = (access_token) => {
   return axios.create({
@@ -12,6 +12,41 @@ const getSpotifyApi = (access_token) => {
       'Authorization': `Bearer ${access_token}`,
       'Content-Type': 'application/json'
     }
+  });
+};
+
+const handleSpotifyError = (userId, error, res) => {
+  CacheService.trackError(userId, error);
+  
+  // Check for token expiration
+  if (error.statusCode === 401 || error.response?.status === 401) {
+    // Clear user session
+    if (res.clearCookie) {
+      res.clearCookie('spotify_access_token');
+      res.clearCookie('spotify_refresh_token');
+    }
+    return res.status(401).json({ 
+      error: 'Token expired',
+      message: 'Your session has expired. Please log in again.'
+    });
+  }
+
+  // Handle rate limiting
+  if (error.statusCode === 429 || error.response?.status === 429) {
+    return res.status(429).json({ 
+      error: 'Rate limit exceeded',
+      message: 'Too many requests. Please try again later.'
+    });
+  }
+
+  // Handle other errors
+  console.error('Spotify API Error:', error);
+  const status = error.statusCode || error.response?.status || 500;
+  const message = error.message || 'An unexpected error occurred';
+  
+  return res.status(status).json({ 
+    error: 'Spotify API Error',
+    message: message
   });
 };
 
@@ -54,10 +89,7 @@ exports.play = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error playing track:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to play track',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -74,10 +106,7 @@ exports.pause = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error pausing track:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to pause track',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -92,10 +121,7 @@ exports.next = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error skipping to next track:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to skip to next track',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -110,10 +136,7 @@ exports.previous = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error going to previous track:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to go to previous track',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -128,10 +151,7 @@ exports.seek = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error seeking position:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to seek position',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -146,10 +166,7 @@ exports.setVolume = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error setting volume:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to set volume',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -164,10 +181,7 @@ exports.setRepeatMode = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error setting repeat mode:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to set repeat mode',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -182,10 +196,7 @@ exports.setShuffle = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error setting shuffle:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to set shuffle',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -220,9 +231,7 @@ exports.getPlaybackState = async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Error getting playback state:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({ 
-      error: error.response?.data?.error?.message || 'Failed to get playback state' 
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -235,10 +244,7 @@ exports.getDevices = async (req, res) => {
     res.json(response.data);
   } catch (error) {
     console.error('Error getting devices:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to get devices',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -259,10 +265,7 @@ exports.getTopTracks = async (req, res) => {
     res.json(response.data.items);
   } catch (error) {
     console.error('Error fetching top tracks:', error);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to fetch top tracks',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -290,10 +293,36 @@ exports.getTopArtists = async (req, res) => {
     res.json(artists);
   } catch (error) {
     console.error('Error fetching top artists:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to fetch top artists',
-      details: error.response?.data || error.message
+    handleSpotifyError(req.user.id, error, res);
+  }
+};
+
+exports.getTopArtists = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { time_range = 'short_term' } = req.query;
+    
+    spotifyApi.setAccessToken(token);
+    const data = await spotifyApi.getMyTopArtists({
+      limit: 50,
+      time_range
     });
+
+    // Transform artist data
+    const transformedArtists = data.body.items.map(artist => ({
+      id: artist.id,
+      name: artist.name,
+      uri: artist.uri,
+      images: artist.images,
+      genres: artist.genres,
+      popularity: artist.popularity,
+      followers: artist.followers
+    }));
+
+    res.json(transformedArtists);
+  } catch (error) {
+    console.error('Error getting top artists:', error);
+    res.status(500).json({ error: 'Failed to get top artists' });
   }
 };
 
@@ -306,10 +335,7 @@ exports.getCurrentTrack = async (req, res) => {
     res.json(response.data);
   } catch (error) {
     console.error('Error fetching current track:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to fetch current track',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -343,10 +369,7 @@ exports.controlPlayback = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error controlling playback:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({
-      error: 'Failed to control playback',
-      details: error.response?.data || error.message
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -356,103 +379,155 @@ exports.getUserPlaylists = async (req, res) => {
     req.spotifyApi.setAccessToken(access_token);
     
     try {
-      // Check rate limit before proceeding
       if (!await CacheService.checkRateLimit(userId)) {
         return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
       }
 
-      const cacheKey = CACHE_KEYS.USER_PLAYLISTS(userId);
-      const cached = await CacheService.get(cacheKey);
-      if (cached) {
-        return res.json(cached);
+      // Use a separate cache key for minimal data
+      const minimalCacheKey = CACHE_KEYS.USER_PLAYLISTS_MINIMAL(userId);
+      const detailsCacheKey = CACHE_KEYS.USER_PLAYLISTS_DETAILS(userId);
+      
+      // Check minimal data cache first
+      const cachedMinimal = await CacheService.get(minimalCacheKey);
+      if (cachedMinimal) {
+        // If we have detailed data cached, merge it
+        const cachedDetails = await CacheService.get(detailsCacheKey);
+        if (cachedDetails) {
+          const mergedData = cachedMinimal.map(playlist => ({
+            ...playlist,
+            ...(cachedDetails.find(d => d.id === playlist.id) || {})
+          }));
+          return res.json(mergedData);
+        }
+        return res.json(cachedMinimal);
       }
 
-      // First, get basic playlist info quickly
-      const data = await req.spotifyApi.getUserPlaylists({ 
-        limit: 20,
-        fields: 'items(id,name,images,owner,tracks.total)'
+      // Fetch minimal data for quick display
+      const data = await requestQueue.addToQueue(async () => {
+        const response = await req.spotifyApi.getUserPlaylists({ 
+          limit: 35,
+          fields: 'items(id,name,images(url),tracks(total),total),total'  // Only fetch required fields
+        });
+        return response.body;
       });
       
-      // Send basic playlist data immediately
-      const basicPlaylists = data.body.items.map(playlist => ({
+      const total = Math.min(data.total, 35);
+      let allItems = [...data.items].slice(0, 35);
+      
+      // Format minimal data
+      const minimalPlaylists = allItems.map(playlist => ({
         id: playlist.id,
         name: playlist.name,
         images: playlist.images,
-        owner: playlist.owner,
-        tracks: { total: playlist.tracks.total },
-        // Default values until details are loaded
-        description: '',
-        collaborative: false,
-        public: true,
-        saves: 0,
-        snapshot_id: '',
-        last_modified: new Date().toISOString()
+        tracks: { total: playlist.tracks.total }
       }));
 
-      // Send the basic data immediately
-      res.json(basicPlaylists);
+      // Cache minimal data with shorter duration
+      await CacheService.set(minimalCacheKey, minimalPlaylists, CACHE_DURATION.PLAYLISTS_MINIMAL);
 
-      // Then load details in the background and cache them
-      const playlistsWithDetails = [];
-      for (const playlist of data.body.items) {
-        if (!playlist) continue;
-        
-        try {
-          const details = await queue.add(async () => {
-            // Get additional playlist details
-            const playlistDetails = await req.spotifyApi.getPlaylist(playlist.id, {
-              fields: 'collaborative,public,followers(total),description,tracks(total),snapshot_id'
-            });
-
-            // Get last modified only if playlist has tracks
-            let lastModified = new Date().toISOString();
-            if (playlistDetails.body.tracks.total > 0) {
-              const tracks = await req.spotifyApi.getPlaylistTracks(playlist.id, {
-                offset: Math.max(0, playlistDetails.body.tracks.total - 1),
-                limit: 1,
-                fields: 'items(added_at)',
-                market: 'from_token'
-              });
-              lastModified = tracks.body.items?.[0]?.added_at || lastModified;
-            }
-
-            return { playlistDetails, lastModified };
-          });
-
-          playlistsWithDetails.push({
-            id: playlist.id,
-            name: playlist.name,
-            description: details.playlistDetails.body.description,
-            images: playlist.images,
-            tracks: { total: details.playlistDetails.body.tracks.total },
-            owner: playlist.owner,
-            collaborative: details.playlistDetails.body.collaborative,
-            public: details.playlistDetails.body.public,
-            saves: details.playlistDetails.body.followers.total,
-            snapshot_id: details.playlistDetails.body.snapshot_id,
-            last_modified: details.lastModified
-          });
-        } catch (error) {
-          console.warn(`Error fetching details for playlist ${playlist.id}:`, error);
-          continue;
-        }
-      }
-
-      // Cache the detailed results for future requests
-      await CacheService.set(cacheKey, playlistsWithDetails, CACHE_DURATION.PLAYLISTS);
+      res.json(minimalPlaylists);
 
     } catch (error) {
-      // Track the error
-      CacheService.trackError(userId, error);
-      
-      if (error.statusCode === 401) {
-        return res.status(401).json({ error: 'Unauthorized. Please re-authenticate.' });
-      }
-      throw error;
+      return handleSpotifyError(userId, error, res);
     }
   } catch (error) {
     console.error('Error in getUserPlaylists:', error);
     res.status(500).json({ error: 'Failed to fetch playlists' });
+  }
+};
+
+exports.getPlaylistsDetails = async (req, res) => {
+  try {
+    const { access_token, id: userId } = req.user;
+    req.spotifyApi.setAccessToken(access_token);
+    
+    try {
+      if (!await CacheService.checkRateLimit(userId)) {
+        return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+      }
+
+      const { playlistIds } = req.query;
+      if (!playlistIds) {
+        return res.status(400).json({ error: 'No playlist IDs provided' });
+      }
+
+      const ids = playlistIds.split(',');
+      const detailsCacheKey = CACHE_KEYS.USER_PLAYLISTS_DETAILS(userId);
+      
+      // Check if we have cached details
+      const cachedDetails = await CacheService.get(detailsCacheKey);
+      if (cachedDetails) {
+        const requestedDetails = cachedDetails.filter(detail => ids.includes(detail.id));
+        if (requestedDetails.length === ids.length) {
+          return res.json(requestedDetails);
+        }
+      }
+
+      const detailedPlaylists = [];
+      const batchSize = 5;
+      
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batch = ids.slice(i, i + batchSize);
+        const batchPromises = batch.map(async playlistId => {
+          try {
+            const [playlistDetails, lastTrackInfo] = await Promise.all([
+              requestQueue.addToQueue(async () => {
+                const response = await req.spotifyApi.getPlaylist(playlistId, {
+                  fields: 'collaborative,public,followers(total),tracks(total),snapshot_id,description,owner'
+                });
+                return response.body;
+              }),
+              requestQueue.addToQueue(async () => {
+                const response = await req.spotifyApi.getPlaylistTracks(playlistId, {
+                  offset: 0,
+                  limit: 1,
+                  fields: 'items(added_at),total',
+                  market: 'from_token'
+                });
+                // If we have tracks, get the last one instead
+                if (response.body.total > 0) {
+                  return req.spotifyApi.getPlaylistTracks(playlistId, {
+                    offset: response.body.total - 1,
+                    limit: 1,
+                    fields: 'items(added_at)',
+                    market: 'from_token'
+                  });
+                }
+                return response;
+              })
+            ]);
+
+            return {
+              id: playlistId,
+              description: playlistDetails.description?.replace(/&#x27;/g, "'")?.replace(/&quot;/g, '"') || '',
+              owner: playlistDetails.owner,
+              collaborative: playlistDetails.collaborative,
+              public: playlistDetails.public,
+              saves: playlistDetails.followers.total,
+              snapshot_id: playlistDetails.snapshot_id,
+              last_modified: lastTrackInfo.body.items[0]?.added_at || new Date().toISOString()
+            };
+          } catch (error) {
+            console.warn(`Error fetching details for playlist ${playlistId}:`, error);
+            return null;
+          }
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        detailedPlaylists.push(...batchResults.filter(Boolean));
+      }
+
+      // Cache the detailed results
+      await CacheService.set(detailsCacheKey, detailedPlaylists, CACHE_DURATION.PLAYLISTS_DETAILS);
+
+      res.json(detailedPlaylists);
+
+    } catch (error) {
+      return handleSpotifyError(userId, error, res);
+    }
+  } catch (error) {
+    console.error('Error in getPlaylistsDetails:', error);
+    res.status(500).json({ error: 'Failed to fetch playlist details' });
   }
 };
 
@@ -477,11 +552,11 @@ exports.getPlaylistTracks = async (req, res) => {
 
     try {
       // Get tracks with full details using queue to prevent rate limiting
-      const response = await queue.add(async () => 
+      const response = await requestQueue.addToQueue(async () => 
         req.spotifyApi.getPlaylistTracks(playlistId, {
           offset: parseInt(offset),
           limit: parseInt(limit),
-          fields: 'items(added_at,added_by,track(id,name,artists(id,name,uri),album(id,name,images,uri),duration_ms,uri,preview_url)),total',
+          fields: 'items(track(id,name,artists(id,name,uri),album(id,name,images,uri),duration_ms,uri,preview_url)),total',
           market: 'from_token'
         })
       );
@@ -523,18 +598,7 @@ exports.getPlaylistTracks = async (req, res) => {
       res.json(result);
 
     } catch (error) {
-      // Track the error
-      CacheService.trackError(userId, error);
-      
-      if (error.statusCode === 401) {
-        return res.status(401).json({ error: 'Unauthorized. Please re-authenticate.' });
-      }
-      if (error.statusCode === 502) {
-        // Retry with exponential backoff for 502 errors
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return exports.getPlaylistTracks(req, res);
-      }
-      throw error;
+      return handleSpotifyError(userId, error, res);
     }
   } catch (error) {
     console.error('Error in getPlaylistTracks:', error);
@@ -631,9 +695,7 @@ exports.addToQueue = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error adding to queue:', error.response?.data || error.message);
-    res.status(error.response?.status || 500).json({ 
-      error: error.response?.data?.error?.message || 'Failed to add to queue'
-    });
+    handleSpotifyError(req.user.id, error, res);
   }
 };
 
@@ -660,5 +722,79 @@ exports.debugCache = async (req, res) => {
   } catch (error) {
     console.error('Error getting cache debug info:', error);
     res.status(500).json({ error: 'Failed to get cache debug info' });
+  }
+};
+
+// Get user's recent tracks
+exports.getRecentTracks = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { time_range = 'short_term' } = req.query;
+    
+    spotifyApi.setAccessToken(token);
+    const data = await spotifyApi.getMyRecentlyPlayedTracks({
+      limit: 50
+    });
+
+    // Transform track data
+    const transformedTracks = data.body.items.map(item => ({
+      id: item.track.id,
+      name: item.track.name,
+      uri: item.track.uri,
+      duration_ms: item.track.duration_ms,
+      played_at: item.played_at,
+      album: {
+        id: item.track.album.id,
+        name: item.track.album.name,
+        images: item.track.album.images
+      },
+      artists: item.track.artists.map(artist => ({
+        id: artist.id,
+        name: artist.name,
+        uri: artist.uri
+      }))
+    }));
+
+    res.json(transformedTracks);
+  } catch (error) {
+    console.error('Error getting recent tracks:', error);
+    res.status(500).json({ error: 'Failed to get recent tracks' });
+  }
+};
+
+// Get user's top tracks
+exports.getTopTracks = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { time_range = 'short_term' } = req.query;
+    
+    spotifyApi.setAccessToken(token);
+    const data = await spotifyApi.getMyTopTracks({
+      limit: 50,
+      time_range: time_range
+    });
+
+    // Transform track data
+    const transformedTracks = data.body.items.map(track => ({
+      id: track.id,
+      name: track.name,
+      uri: track.uri,
+      duration_ms: track.duration_ms,
+      album: {
+        id: track.album.id,
+        name: track.album.name,
+        images: track.album.images
+      },
+      artists: track.artists.map(artist => ({
+        id: artist.id,
+        name: artist.name,
+        uri: artist.uri
+      }))
+    }));
+
+    res.json(transformedTracks);
+  } catch (error) {
+    console.error('Error getting top tracks:', error);
+    res.status(500).json({ error: 'Failed to get top tracks' });
   }
 };

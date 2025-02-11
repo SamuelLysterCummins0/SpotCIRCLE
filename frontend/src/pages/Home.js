@@ -23,13 +23,15 @@ import TimeRangeSelector from '../components/timeRange/TimeRangeSelector';
 import PlaylistStats from '../components/playlist/PlaylistStats';
 import PlaylistHeader from '../components/playlist/PlaylistHeader';
 import PlaylistView from '../components/playlist/PlaylistView';
-import { decodeHtmlEntities, debounce, getPlaylistStats } from '../utils/helpers';
+import { decodeHtmlEntities } from '../utils/helpers';
 import { sortOptions } from '../constants/sortOptions';
 import MainPageHeader from '../components/mainPage/MainPageHeader';
 import MainPageTrackList from '../components/mainPage/MainPageTrackList';
 import MainPageArtistList from '../components/mainPage/MainPageArtistList';
 import MainPageAlbumList from '../components/mainPage/MainPageAlbumList';
 import { playlistCache, uiStateCache, playerCache, CACHE_DURATION, CACHE_KEYS } from '../utils/cacheManager';
+import debounce from 'lodash/debounce';
+import { usePlayerStateUpdate } from '../hooks/usePlayerStateUpdate';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
@@ -49,6 +51,7 @@ const Home = () => {
   const [expandedSection, setExpandedSection] = useState(null);
   const { currentTrack, updateCurrentTrack, setIsPlaying: setPlayerIsPlaying } = usePlayerContext();
   const [playlists, setPlaylists] = useState([]);
+  const fetchingPlaylistsRef = useRef(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [showPlaylistView, setShowPlaylistView] = useState(false);
   const [isPlaylistTransition, setIsPlaylistTransition] = useState(false);
@@ -202,33 +205,97 @@ const Home = () => {
   };
 
   useEffect(() => {
-    const fetchPlaylists = async () => {
+    console.log('Effect running, fetchingPlaylistsRef:', fetchingPlaylistsRef.current);
+    
+    const fetchPlaylists = async (limit = 20) => {
+      if (fetchingPlaylistsRef.current) {
+        console.log('Preventing duplicate fetch due to StrictMode');
+        return;
+      }
+      console.log('Starting playlist fetch');
+      fetchingPlaylistsRef.current = true;
+      
       try {
         // Check cache first
         const cacheKey = CACHE_KEYS.USER_PLAYLISTS;
         const cachedPlaylists = await playlistCache.get(cacheKey);
         
         if (cachedPlaylists) {
+          console.log('Using cached playlists');
           setPlaylists(cachedPlaylists);
           return;
         }
 
-        const response = await api.get('/api/spotify/playlists', {
+        console.log('Cache miss, fetching from API');
+        const response = await api.get('/api/spotify/playlists?limit=${limit}', {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('spotify_access_token')}`
           }
         });
-        
+        console.log('API response received:', response.data);
         // Cache the playlists
         await playlistCache.set(cacheKey, response.data, CACHE_DURATION.PLAYLIST);
         setPlaylists(response.data);
       } catch (error) {
         console.error('Error fetching playlists:', error.response || error);
+      } finally {
+        fetchingPlaylistsRef.current = false;
+        console.log('Fetch complete, ref reset');
       }
     };
 
     fetchPlaylists();
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchPlaylistDetails = async () => {
+      if (!playlists.length) return;
+      
+      try {
+        const playlistIds = playlists.map(p => p.id).join(',');
+        const response = await api.get(`/api/spotify/playlists/details?playlistIds=${playlistIds}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('spotify_access_token')}`
+          }
+        });
+        
+        if (!isMounted) return;
+
+        // Update playlists with detailed stats
+        setPlaylists(prevPlaylists => {
+          const updatedPlaylists = prevPlaylists.map(playlist => {
+            const details = response.data.find(d => d.id === playlist.id);
+            if (details) {
+              return {
+                ...playlist,
+                ...details
+              };
+            }
+            return playlist;
+          });
+
+          // Update cache with new data
+          const cacheKey = CACHE_KEYS.USER_PLAYLISTS;
+          playlistCache.set(cacheKey, updatedPlaylists, CACHE_DURATION.PLAYLIST);
+
+          return updatedPlaylists;
+        });
+      } catch (error) {
+        console.error('Error fetching playlist details:', error);
+      }
+    };
+
+    // Fetch details immediately after initial load
+    if (playlists.length > 0) {
+      fetchPlaylistDetails();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [playlists.length]);
 
   useEffect(() => {
     const token = localStorage.getItem('spotify_access_token');
@@ -519,65 +586,31 @@ const Home = () => {
     }
   };
 
-  const debouncedUpdateState = useCallback(
-    debounce(async () => {
-      try {
-        const response = await axios.get('/api/spotify/player/state');
-        if (response.data?.item && response.data.item.id !== currentTrack?.id) {
-          updateCurrentTrack(response.data.item);
-          if (response.data?.queue) {
-            setQueue(prevQueue => {
-              // Only update if queue has actually changed
-              const newQueue = response.data.queue;
-              if (prevQueue.length !== newQueue.length || 
-                  JSON.stringify(prevQueue) !== JSON.stringify(newQueue)) {
-                return newQueue;
-              }
-              return prevQueue;
-            });
-          }
-        }
-      } catch (error) {
-        console.debug('State update failed:', error);
-      }
-    }, 300),
-    [currentTrack]
-  );
-
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    // Initial update
-    debouncedUpdateState();
-
-    // Update every 2 seconds while playing
-    const interval = setInterval(debouncedUpdateState, 2000);
-    return () => {
-      clearInterval(interval);
-      debouncedUpdateState.cancel?.();
-    };
-  }, [isPlaying, debouncedUpdateState]);
-
+  // Unified state update function
   const updatePlayerState = useCallback(async () => {
     try {
       const response = await axios.get('/api/spotify/player/state');
       if (response.data?.item && response.data.item.id !== currentTrack?.id) {
         updateCurrentTrack(response.data.item);
-        if (response.data?.queue) {
-          setQueue(prevQueue => {
-            // Only update if queue has actually changed
-            const areQueuesEqual = prevQueue.length === response.data.queue.length &&
-              prevQueue.every((track, index) => track.id === response.data.queue[index].id);
-            return areQueuesEqual ? prevQueue : response.data.queue;
-          });
-        }
       }
+      // Restore queue update logic
+      if (response.data?.queue) {
+        setQueue(prevQueue => {
+          const areQueuesEqual = prevQueue.length === response.data.queue.length &&
+            prevQueue.every((track, index) => track.id === response.data.queue[index].id);
+          return areQueuesEqual ? prevQueue : response.data.queue;
+        });
+      }
+      // Restore player state updates
       setIsPlaying(!response.data?.is_paused);
       setPlayerIsPlaying(!response.data?.is_paused);
     } catch (error) {
-      console.error('Failed to update player state:', error);
+      console.error('Error updating player state:', error);
     }
   }, [currentTrack?.id, updateCurrentTrack, setPlayerIsPlaying]);
+
+  // Use the custom hook for player state updates
+  const debouncedUpdateState = usePlayerStateUpdate(updatePlayerState, isPlaying);
 
   const handleNext = async () => {
     try {

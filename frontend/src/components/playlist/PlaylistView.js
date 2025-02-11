@@ -253,14 +253,16 @@ const PlaylistView = ({
   }, [handleScroll]);
 
   useEffect(() => {
-    loadPlaylistTracks();
+    if (showPlaylistView && playlist) {
+      loadPlaylistTracks();
+    }
     
     return () => {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
     };
-  }, [loadPlaylistTracks]);
+  }, [loadPlaylistTracks, showPlaylistView, playlist]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
