@@ -207,7 +207,7 @@ const Home = () => {
   useEffect(() => {
     console.log('Effect running, fetchingPlaylistsRef:', fetchingPlaylistsRef.current);
     
-    const fetchPlaylists = async (limit = 20) => {
+    const fetchPlaylists = async (limit = 35) => {
       if (fetchingPlaylistsRef.current) {
         console.log('Preventing duplicate fetch due to StrictMode');
         return;
@@ -227,7 +227,7 @@ const Home = () => {
         }
 
         console.log('Cache miss, fetching from API');
-        const response = await api.get('/api/spotify/playlists?limit=${limit}', {
+        const response = await api.get(`/api/spotify/playlists?limit=${limit}`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('spotify_access_token')}`
           }
