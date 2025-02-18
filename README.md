@@ -1,5 +1,9 @@
 # SpotCIRCLE
 
+<p align="center">
+  <img src="assets/SpotCircleLogo.png" alt="SpotCIRCLE Logo" width="200"/>
+</p>
+
 A Spotify web player that enables users to explore their music listening habits, view top tracks, artists, and albums across different time periods. Features include full playback control, playlist management, queue manipulation, and real-time lyrics display with dynamic visualizations.
 
 ## Key Features
