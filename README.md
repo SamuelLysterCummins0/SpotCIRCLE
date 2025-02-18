@@ -78,12 +78,6 @@ Create a `.env` file in the `backend` directory with these variables:
 PORT=5001
 FRONTEND_URL=http://localhost:3000
 
-# MongoDB Configuration
-MONGODB_URI=your_mongodb_connection_string
-
-# JWT Configuration
-JWT_SECRET=your_jwt_secret_here
-
 # Spotify API Configuration
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
@@ -94,8 +88,6 @@ GENIUS_CLIENT_ID=your_genius_client_id
 GENIUS_CLIENT_SECRET=your_genius_client_secret
 GENIUS_ACCESS_TOKEN=your_genius_access_token
 
-# Redis Configuration (Optional)
-REDIS_URL=redis://localhost:6379
 ```
 
 To get these credentials:
@@ -105,15 +97,10 @@ To get these credentials:
    - Get the Client ID and Client Secret
    - Add `http://localhost:5001/api/auth/callback` to Redirect URIs
 
-2. **Genius API**:
+2. **Genius API Lyrics**:
    - Go to [Genius API Clients](https://genius.com/api-clients)
    - Create a new API Client
    - Get the Client ID, Client Secret, and Access Token
-
-3. **MongoDB**:
-   - Create a [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) account
-   - Set up a new cluster
-   - Get your connection string
 
 #### Frontend `.env`
 Create a `.env` file in the `frontend` directory with these variables:
