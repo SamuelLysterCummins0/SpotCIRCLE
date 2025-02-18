@@ -34,22 +34,19 @@ const PlaylistItem = ({ playlist, onClick, isSelected }) => (
 const NotchButton = ({ isOpen, onClick }) => (
   <motion.button
     onClick={onClick}
-    className="absolute -right-6 top-[45%] -translate-y-1/2 w-6 h-16 bg-black/40 backdrop-blur-lg rounded-r-xl shadow-lg border border-white/5 group overflow-hidden"
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
+    className="absolute -right-6 top-[45%] -translate-y-1/2 w-6 h-16 bg-black/40 backdrop-blur-lg rounded-r-xl shadow-lg border border-white/5 group hover:bg-black/60 active:bg-black/80 transition-colors duration-200"
   >
-    <motion.div 
-      className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"
-      initial={false}
-      animate={{ opacity: isOpen ? 0 : 0.3 }}
+    <div 
+      className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200"
     />
     <motion.div 
       className="absolute inset-0 flex items-center justify-center"
       initial={false}
       animate={{ rotate: isOpen ? 180 : 0 }}
+      transition={{ duration: 0.2 }}
     >
       <svg 
-        className="w-4 h-4 text-white/70 group-hover:text-white/90 transition-colors" 
+        className="w-4 h-4 text-white/70 group-hover:text-white transition-colors duration-200" 
         fill="none" 
         stroke="currentColor" 
         viewBox="0 0 24 24"
