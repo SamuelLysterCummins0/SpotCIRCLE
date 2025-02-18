@@ -8,24 +8,36 @@ A Spotify web player that enables users to explore their music listening habits,
   - View top tracks, artists, and albums across different time periods
   - Detailed playlist statistics and analytics
   - Real-time playback history
+  - Smart playlist categorization and filtering
+  - Cross-time period trend analysis
+  - Personalized music recommendations
 
 - **Advanced Playback Control**
   - System-wide music controls via custom PlayerNotch
   - Queue management and playlist handling
   - Real-time playback synchronization
   - Volume and progress control
+  - Advanced playlist sorting and filtering
+  - Drag-and-drop queue management
+  - Seamless device switching
 
 - **Enhanced Music Experience**
   - Real-time lyrics integration via Genius API
   - Dynamic color extraction from album artwork
   - Fluid gradient animations
   - Cross-platform desktop integration
+  - Real-time collaborative playlist editing
+  - Smart shuffle with genre awareness
+  - Customizable audio visualizations
 
 - **Performance Optimizations**
   - Multi-layer caching system (memory + localStorage)
   - Intelligent request queue with rate limiting
   - Debounced state updates
   - Optimized API request handling
+  - Progressive web app capabilities
+  - Offline mode support
+  - Background data prefetching
 
 ## Technical Stack
 
@@ -34,12 +46,18 @@ A Spotify web player that enables users to explore their music listening habits,
   - Tailwind CSS
   - Spotify Web Playback SDK
   - Custom animations and transitions
+  - Real-time state synchronization
+  - WebSocket integration
+  - Service Worker implementation
 
 - **Backend**
   - Node.js with Express
   - OAuth2 authentication
   - Genius API integration
   - Advanced caching system
+  - Rate limiting middleware
+  - WebSocket server
+  - Redis for session management
 
 ## Setup Instructions
 
@@ -146,7 +164,6 @@ spotcircle/
 │   ├── tailwind.config.js
 │   └── package.json
 └── README.md
-```
 
 ## Features in Development
 
