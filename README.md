@@ -67,6 +67,68 @@ A Spotify web player that enables users to explore their music listening habits,
 - Spotify Developer Account
 - Genius API credentials
 
+### Environment Configuration
+
+Before running the application, you need to set up environment variables for both the frontend and backend. Create `.env` files in both directories with the following configurations:
+
+#### Backend `.env`
+Create a `.env` file in the `backend` directory with these variables:
+```env
+# Server Configuration
+PORT=5001
+FRONTEND_URL=http://localhost:3000
+
+# MongoDB Configuration
+MONGODB_URI=your_mongodb_connection_string
+
+# JWT Configuration
+JWT_SECRET=your_jwt_secret_here
+
+# Spotify API Configuration
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+SPOTIFY_REDIRECT_URI=http://localhost:5001/api/auth/callback
+
+# Genius API Configuration
+GENIUS_CLIENT_ID=your_genius_client_id
+GENIUS_CLIENT_SECRET=your_genius_client_secret
+GENIUS_ACCESS_TOKEN=your_genius_access_token
+
+# Redis Configuration (Optional)
+REDIS_URL=redis://localhost:6379
+```
+
+To get these credentials:
+1. **Spotify API**: 
+   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+   - Create a new application
+   - Get the Client ID and Client Secret
+   - Add `http://localhost:5001/api/auth/callback` to Redirect URIs
+
+2. **Genius API**:
+   - Go to [Genius API Clients](https://genius.com/api-clients)
+   - Create a new API Client
+   - Get the Client ID, Client Secret, and Access Token
+
+3. **MongoDB**:
+   - Create a [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) account
+   - Set up a new cluster
+   - Get your connection string
+
+#### Frontend `.env`
+Create a `.env` file in the `frontend` directory with these variables:
+```env
+REACT_APP_SPOTIFY_CLIENT_ID=your_spotify_client_id
+REACT_APP_SPOTIFY_REDIRECT_URI=http://localhost:5001/api/auth/callback
+REACT_APP_API_URL=http://localhost:5001
+```
+
+Notes:
+- Use the same Spotify Client ID as in the backend
+- Make sure the redirect URI matches in both frontend and backend
+- Never commit `.env` files to version control
+- Keep your API secrets and credentials private
+
 ### Backend Setup
 
 1. Navigate to the backend directory:
