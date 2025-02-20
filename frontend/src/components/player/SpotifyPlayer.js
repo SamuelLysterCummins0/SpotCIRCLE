@@ -54,30 +54,34 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
 
     // Check if this is a significant state change
     if (isSignificantStateChange(lastState, state)) {
-      // Update the last state immediately to prevent duplicate processing
+      // Update the last state immediately
       lastStateRef.current = state;
-
-      // Set a new timeout for UI updates
-      stateTimeoutRef.current = setTimeout(() => {
-        // Only update UI and log if the state is still current
-        if (lastStateRef.current === state) {
-          // Only log track changes or play/pause changes
-          if (!lastState || 
-              lastState?.track_window?.current_track?.uri !== state.track_window.current_track.uri ||
-              lastState?.paused !== state.paused) {
-            console.log('Player State:', {
-              track: state.track_window.current_track.name,
-              artist: state.track_window.current_track.artists[0].name,
-              paused: state.paused,
-              position: state.position,
-              duration: state.duration
-            });
+      
+      // Update player state immediately for play/pause changes
+      if (!lastState || lastState?.paused !== state.paused) {
+        setPlayerState(state);
+        onPlayPause && onPlayPause(!state.paused);
+      } else {
+        // Use timeout only for other state changes
+        stateTimeoutRef.current = setTimeout(() => {
+          if (lastStateRef.current === state) {
+            setPlayerState(state);
           }
+        }, 16);
+      }
 
-          setPlayerState(state);
-          onPlayPause && onPlayPause(!state.paused);
-        }
-      }, 16); // Use requestAnimationFrame timing (~16ms) for smoother updates
+      // Log significant changes
+      if (!lastState || 
+          lastState?.track_window?.current_track?.uri !== state.track_window.current_track.uri ||
+          lastState?.paused !== state.paused) {
+        console.log('Player State:', {
+          track: state.track_window.current_track.name,
+          artist: state.track_window.current_track.artists[0].name,
+          paused: state.paused,
+          position: state.position,
+          duration: state.duration
+        });
+      }
     }
   }, [onPlayPause]);
 
