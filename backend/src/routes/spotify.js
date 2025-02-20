@@ -20,6 +20,10 @@ router.get('/playlists/:playlistId/tracks', spotifyController.getPlaylistTracks)
 router.get('/tracks/top', spotifyController.getTopTracks);
 router.get('/tracks/recent', spotifyController.getRecentTracks);
 
+// Artist and Album routes
+router.get('/artists/:artistId/top-tracks', spotifyController.getArtistTopTracks);
+router.get('/albums/:albumId/tracks', spotifyController.getAlbumTracks);
+
 // Player control routes
 router.put('/player/play', spotifyController.play);
 router.put('/player/pause', spotifyController.pause);

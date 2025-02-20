@@ -2,11 +2,12 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TimeRangeLabels } from '../../constants/timeRanges';
 
-const AlbumItem = ({ album, index }) => (
+const AlbumItem = ({ album, index, onClick }) => (
   <motion.div
     className="group relative"
     whileHover={{ scale: 1.03 }}
     transition={{ type: "spring", stiffness: 400, damping: 25 }}
+    onClick={() => onClick(album)}
   >
     <div className="relative aspect-square">
       <img
@@ -37,7 +38,8 @@ const MainPageAlbumList = ({
   title, 
   expandedSection,
   selectedTimeRange,
-  onExpandSection 
+  onExpandSection,
+  onAlbumSelect
 }) => {
   const isExpanded = expandedSection === 'albums';
   const displayAlbums = albums.slice(0, 7);
@@ -77,7 +79,7 @@ const MainPageAlbumList = ({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
         {displayAlbums.map((album, index) => (
           <div key={album.id} className="group">
-            <AlbumItem album={album} index={index + 1} />
+            <AlbumItem album={album} index={index + 1} onClick={onAlbumSelect} />
           </div>
         ))}
         <AnimatePresence>
@@ -101,7 +103,7 @@ const MainPageAlbumList = ({
               }}
               className="group"
             >
-              <AlbumItem album={album} index={index + 8} />
+              <AlbumItem album={album} index={index + 8} onClick={onAlbumSelect} />
             </motion.div>
           ))}
         </AnimatePresence>

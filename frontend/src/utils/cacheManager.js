@@ -17,7 +17,8 @@ export const CACHE_KEYS = {
   HEADER_STATS: (playlistId) => `playlist:${playlistId}:header_stats`,
   TIME_RANGE_DATA: (timeRange) => `time_range:${timeRange}:data`,
   PLAYLIST_MINIMAL: 'playlists:minimal',
-  PLAYLIST_DETAILS: 'playlists:details'
+  PLAYLIST_DETAILS: 'playlists:details',
+  RECENT_TRACKS: 'tracks:recent'
 };
 
 class CacheManager {

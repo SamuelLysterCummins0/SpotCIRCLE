@@ -269,33 +269,6 @@ exports.getTopTracks = async (req, res) => {
   }
 };
 
-exports.getTopArtists = async (req, res) => {
-  try {
-    const { access_token } = req.user;
-    const { time_range = 'short_term', limit = 50 } = req.query;
-    
-    const spotifyApiInstance = getSpotifyApi(access_token);
-    const response = await spotifyApiInstance.get('/me/top/artists', {
-      params: {
-        time_range,
-        limit,
-        offset: 0
-      }
-    });
-
-    // Add some additional metrics based on the user's listening history
-    const artists = response.data.items.map(artist => ({
-      ...artist,
-      minutes: Math.floor(Math.random() * 1000) + 100, // This would ideally come from real data
-      streams: Math.floor(Math.random() * 100) + 10 // This would ideally come from real data
-    }));
-
-    res.json(artists);
-  } catch (error) {
-    console.error('Error fetching top artists:', error.response?.data || error.message);
-    handleSpotifyError(req.user.id, error, res);
-  }
-};
 
 exports.getTopArtists = async (req, res) => {
   try {
@@ -796,5 +769,96 @@ exports.getTopTracks = async (req, res) => {
   } catch (error) {
     console.error('Error getting top tracks:', error);
     res.status(500).json({ error: 'Failed to get top tracks' });
+  }
+};
+
+// Get artist's top tracks
+exports.getArtistTopTracks = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { artistId } = req.params;
+    
+    spotifyApi.setAccessToken(token);
+    const data = await spotifyApi.getArtistTopTracks(artistId, 'US');
+
+    // Transform track data
+    const transformedTracks = data.body.tracks.map(track => ({
+      id: track.id,
+      name: track.name,
+      uri: track.uri,
+      duration_ms: track.duration_ms,
+      preview_url: track.preview_url,
+      album: {
+        id: track.album.id,
+        name: track.album.name,
+        images: track.album.images
+      },
+      artists: track.artists.map(artist => ({
+        id: artist.id,
+        name: artist.name,
+        uri: artist.uri
+      }))
+    }));
+
+    res.json(transformedTracks);
+  } catch (error) {
+    console.error('Error getting artist top tracks:', error);
+    res.status(500).json({ error: 'Failed to get artist top tracks' });
+  }
+};
+
+// Get album tracks
+exports.getAlbumTracks = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const { albumId } = req.params;
+    
+    spotifyApi.setAccessToken(token);
+    const [albumData, tracksData] = await Promise.all([
+      spotifyApi.getAlbum(albumId),
+      spotifyApi.getAlbumTracks(albumId, { limit: 50 })
+    ]);
+
+    const album = albumData.body;
+
+    // Transform track data
+    const transformedTracks = tracksData.body.items.map(track => ({
+      id: track.id,
+      name: track.name,
+      uri: track.uri,
+      duration_ms: track.duration_ms,
+      preview_url: track.preview_url,
+      track_number: track.track_number,
+      artists: track.artists.map(artist => ({
+        id: artist.id,
+        name: artist.name,
+        uri: artist.uri
+      })),
+      album: {
+        id: album.id,
+        name: album.name,
+        images: album.images,
+        uri: album.uri
+      }
+    }));
+
+    // Format release date based on precision
+    let releaseYear;
+    if (album.release_date) {
+      const [year] = album.release_date.split('-');
+      releaseYear = parseInt(year);
+    }
+
+    res.json({
+      tracks: transformedTracks,
+      albumInfo: {
+        total_tracks: album.total_tracks,
+        release_date: album.release_date,
+        release_year: releaseYear
+      }
+    });
+  } catch (error) {
+    console.error('Error getting album tracks:', error);
+    res.status(500).json({ error: 'Failed to get album tracks' });
   }
 };

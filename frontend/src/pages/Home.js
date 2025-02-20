@@ -29,9 +29,12 @@ import MainPageHeader from '../components/mainPage/MainPageHeader';
 import MainPageTrackList from '../components/mainPage/MainPageTrackList';
 import MainPageArtistList from '../components/mainPage/MainPageArtistList';
 import MainPageAlbumList from '../components/mainPage/MainPageAlbumList';
+import MainPageRecentTrackList from '../components/mainPage/MainPageRecentTrackList';
 import { playlistCache, uiStateCache, playerCache, CACHE_DURATION, CACHE_KEYS } from '../utils/cacheManager';
 import debounce from 'lodash/debounce';
 import { usePlayerStateUpdate } from '../hooks/usePlayerStateUpdate';
+import ArtistView from '../components/artist/ArtistView';
+import AlbumView from '../components/album/AlbumView';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
@@ -55,6 +58,13 @@ const Home = () => {
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [showPlaylistView, setShowPlaylistView] = useState(false);
   const [isPlaylistTransition, setIsPlaylistTransition] = useState(false);
+  const [recentTracks, setRecentTracks] = useState([]);
+  const [selectedArtist, setSelectedArtist] = useState(null);
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [showArtistView, setShowArtistView] = useState(false);
+  const [showAlbumView, setShowAlbumView] = useState(false);
+  const [isArtistTransition, setIsArtistTransition] = useState(false);
+  const [isAlbumTransition, setIsAlbumTransition] = useState(false);
   const { scrollY } = useScroll();
   const [currentPage, setCurrentPage] = useState(0);
   const TRACKS_PER_PAGE = 100;
@@ -97,6 +107,29 @@ const Home = () => {
       .slice(0, 14);
   }, []);
 
+  // Fetch recent tracks
+  const fetchRecentTracks = useCallback(async () => {
+    try {
+      const cacheKey = CACHE_KEYS.RECENT_TRACKS;
+      const cachedData = uiStateCache.get(cacheKey);
+      
+      if (cachedData) {
+        return cachedData;
+      }
+
+      const data = await fetchData('/api/tracks/recent?limit=28');
+      
+      if (data && Array.isArray(data)) {
+        uiStateCache.set(cacheKey, data, CACHE_DURATION.UI_STATE);
+        return data;
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching recent tracks:', error);
+      return [];
+    }
+  }, []);
+
   // Optimize track data fetching
   const fetchAllData = useCallback(async () => {
     try {
@@ -106,6 +139,10 @@ const Home = () => {
       // Use CacheManager instead of local ref cache
       const cacheKey = CACHE_KEYS.TIME_RANGE_DATA(selectedTimeRange);
       const cachedData = await uiStateCache.get(cacheKey);
+      
+      // Fetch recent tracks regardless of time range cache
+      const recentTracksData = await fetchRecentTracks();
+      setRecentTracks(recentTracksData);
       
       if (cachedData) {
         const { tracks, artists } = cachedData;
@@ -144,14 +181,9 @@ const Home = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedTimeRange, processTopAlbums]);
+  }, [selectedTimeRange, processTopAlbums, fetchRecentTracks]);
 
-  // Clean up only albumCache when component unmounts
-  useEffect(() => {
-    return () => {
-      // No need to clear albumCache since we're using CacheManager
-    };
-  }, []);
+  
 
   // Parallax effect values
   const backgroundY = useTransform(scrollY, [0, 500], [0, 150]);
@@ -325,6 +357,20 @@ const Home = () => {
       return () => clearTimeout(timer);
     }
   }, [sdkReady, loading]);
+
+  useEffect(() => {
+    // Prevent scrolling on the main page when artist or album view is open
+    if (showArtistView || showAlbumView) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+
+    // Cleanup when component unmounts
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [showArtistView, showAlbumView]);
 
   const handleLogout = () => {
     localStorage.removeItem('spotify_access_token');
@@ -529,10 +575,15 @@ const Home = () => {
         return;
       }
 
-      // Get the current list of tracks
-      const currentTracks = trackList || topTracks;
+      // Get the current list of tracks based on where the track was selected from
+      let currentTracks = trackList;
       if (!currentTracks || !Array.isArray(currentTracks)) {
-        throw new Error("No valid track list available");
+        // If no trackList provided, try to determine which list the track is from
+        if (recentTracks.some(t => t.id === track.id)) {
+          currentTracks = recentTracks;
+        } else {
+          currentTracks = topTracks;
+        }
       }
 
       // Find the selected track's index
@@ -669,6 +720,28 @@ const Home = () => {
     }, 300);
   };
 
+  const handleArtistClick = (artist) => {
+    setSelectedArtist(artist);
+    setShowArtistView(true);
+    setIsArtistTransition(true);
+  };
+
+  const handleAlbumClick = (album) => {
+    setSelectedAlbum(album);
+    setShowAlbumView(true);
+    setIsAlbumTransition(true);
+  };
+
+  const handleBackFromArtist = () => {
+    setShowArtistView(false);
+    setIsArtistTransition(false);
+  };
+
+  const handleBackFromAlbum = () => {
+    setShowAlbumView(false);
+    setIsAlbumTransition(false);
+  };
+
   const renderMainContent = () => (
     <motion.div 
       initial={false}
@@ -694,7 +767,9 @@ const Home = () => {
           title="Top artists"
           expandedSection={expandedSection}
           selectedTimeRange={selectedTimeRange}
+          onTimeRangeChange={(newRange) => setSelectedTimeRange(newRange)}
           onExpandSection={setExpandedSection}
+          onArtistSelect={handleArtistClick}
         />
 
         <MainPageAlbumList
@@ -702,7 +777,16 @@ const Home = () => {
           title="Top albums"
           expandedSection={expandedSection}
           selectedTimeRange={selectedTimeRange}
+          onTimeRangeChange={(newRange) => setSelectedTimeRange(newRange)}
           onExpandSection={setExpandedSection}
+          onAlbumSelect={handleAlbumClick}
+        />
+
+        <MainPageRecentTrackList
+          tracks={recentTracks}
+          expandedSection={expandedSection}
+          onExpandSection={setExpandedSection}
+          onTrackSelect={handleTrackSelect}
         />
       </div>
     </motion.div>
@@ -750,6 +834,30 @@ const Home = () => {
             <div className="container mx-auto px-4 py-8 relative overflow-hidden">
               {renderMainContent()}
               {renderPlaylistView()}
+              {selectedArtist && (
+                <ArtistView
+                  artist={selectedArtist}
+                  onBack={handleBackFromArtist}
+                  isArtistTransition={isArtistTransition}
+                  showArtistView={showArtistView}
+                  onTrackSelect={handleTrackSelect}
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  onAddToQueue={handleAddToQueue}
+                />
+              )}
+              {selectedAlbum && (
+                <AlbumView
+                  album={selectedAlbum}
+                  onBack={handleBackFromAlbum}
+                  isAlbumTransition={isAlbumTransition}
+                  showAlbumView={showAlbumView}
+                  onTrackSelect={handleTrackSelect}
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  onAddToQueue={handleAddToQueue}
+                />
+              )}
             </div>
           </div>
         </div>
