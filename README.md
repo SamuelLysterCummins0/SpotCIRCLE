@@ -1,12 +1,13 @@
 # SpotCIRCLE <img src="assets/SpotCircleLogo.jpg" alt="SpotCIRCLE Logo" width="50" style="vertical-align: middle;"/>
 
 <div align="center">
-  <a href="https://www.youtube.com/watch?v=HzV0O5e0tBU">
   <div style="position: relative; display: inline-block;">
     <img src="assets/Image.png" alt="SpotCIRCLE Demo Thumbnail" width="640"/>
-    <a href="https://www.youtube.com/watch?v=HzV0O5e0tBU" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
-      <img src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/youtube.svg" alt="Play Video" width="60" style="opacity: 0.8;"/>
-    </a>
+    <img src="https://raw.githubusercontent.com/rahuldkjain/github-profile-readme-generator/master/src/images/icons/Social/youtube.svg" 
+         alt="Play Video" 
+         width="60" 
+         style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.8;"
+    />
   </div>
 </div>
 
