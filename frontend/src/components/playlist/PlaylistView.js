@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import { api } from '../../utils/spotifyApi';
 import PlaylistHeader from './PlaylistHeader';
 import PlaylistStats from './PlaylistStats';
 import TrackItem from '../tracks/TrackItem';
@@ -89,7 +89,7 @@ const PlaylistView = ({
     }
     
     try {
-      const response = await axios.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
+      const response = await api.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
         params: {
           offset: 0,
           limit: TRACKS_PER_PAGE
@@ -224,7 +224,7 @@ const PlaylistView = ({
     setIsLoading(true);
     
     try {
-      const response = await axios.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
+      const response = await api.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
         params: {
           offset: playlistOffset,
           limit: TRACKS_PER_PAGE
@@ -285,7 +285,7 @@ const PlaylistView = ({
         console.log(`Loading batch at offset ${currentOffset} of ${playlistTotal}`);
         lastBatchTime = Date.now();
         
-        const response = await axios.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
+        const response = await api.get(`/api/spotify/playlists/${playlist.id}/tracks`, {
           params: {
             offset: currentOffset,
             limit: batchSize

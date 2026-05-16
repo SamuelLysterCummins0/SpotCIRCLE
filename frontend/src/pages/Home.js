@@ -10,7 +10,6 @@ import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
 import PlayerNotch from '../components/player/PlayerNotch';
 import SpotifyPlayer from '../components/player/SpotifyPlayer';
 import LoadingScreen from '../components/loading/LoadingScreen';
-import axios from 'axios';
 import { api } from '../utils/spotifyApi';
 import toast, { Toaster } from 'react-hot-toast';
 import { usePlayerContext } from '../contexts/PlayerContext';
@@ -35,8 +34,6 @@ import debounce from 'lodash/debounce';
 import { usePlayerStateUpdate } from '../hooks/usePlayerStateUpdate';
 import ArtistView from '../components/artist/ArtistView';
 import AlbumView from '../components/album/AlbumView';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -177,7 +174,12 @@ const Home = () => {
 
     } catch (err) {
       console.error('Error fetching data:', err);
-      setError('Failed to load music data. Please try again.');
+      const apiMessage = err.response?.data?.message;
+      if (err.response?.status === 403 && apiMessage) {
+        setError(apiMessage);
+      } else {
+        setError('Failed to load music data. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -189,51 +191,11 @@ const Home = () => {
   const backgroundY = useTransform(scrollY, [0, 500], [0, 150]);
   const opacity = useTransform(scrollY, [0, 200], [1, 0]);
 
-  const refreshAccessToken = async () => {
-    try {
-      const refresh_token = localStorage.getItem('spotify_refresh_token');
-      if (!refresh_token) {
-        throw new Error('No refresh token available');
-      }
-
-      const response = await api.post('/api/auth/refresh', {
-        refresh_token
-      });
-
-      localStorage.setItem('spotify_access_token', response.data.access_token);
-      return response.data.access_token;
-    } catch (error) {
-      console.error('Error refreshing token:', error);
-      handleLogout();
-      throw error;
-    }
-  };
-
-  const fetchData = async (endpoint, retryWithNewToken = true) => {
-    try {
-      const token = localStorage.getItem('spotify_access_token');
-      if (!token) {
-        throw new Error('No access token available');
-      }
-
-      const response = await api.get(endpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      return response.data;
-    } catch (err) {
-      if (err.response?.status === 401 && retryWithNewToken) {
-        try {
-          await refreshAccessToken();
-          return fetchData(endpoint, false);
-        } catch (refreshError) {
-          console.error('Error refreshing token:', refreshError);
-          handleLogout();
-        }
-      }
-      throw err;
-    }
+  // Token refresh and 401 handling are centralised in utils/spotifyApi.js
+  // via the `api` axios instance, so this just unwraps response data.
+  const fetchData = async (endpoint) => {
+    const response = await api.get(endpoint);
+    return response.data;
   };
 
   useEffect(() => {
@@ -339,10 +301,6 @@ const Home = () => {
   }, [navigate, fetchAllData]); // Re-fetch when time range changes
 
   useEffect(() => {
-    // Set up axios defaults
-    axios.defaults.baseURL = API_URL;
-    axios.defaults.headers.common['Authorization'] = `Bearer ${localStorage.getItem('spotify_access_token')}`;
-    
     initializeSpotifySDK().then(() => {
       setSdkReady(true);
     });
@@ -564,11 +522,11 @@ const Home = () => {
       // If clicking the same track that's currently playing, toggle play/pause
       if (currentTrack?.id === track.id) {
         if (isPlaying) {
-          await axios.put('/api/spotify/player/pause', { device_id: deviceId });
+          await api.put('/api/spotify/player/pause', { device_id: deviceId });
           setIsPlaying(false);
           setPlayerIsPlaying(false);
         } else {
-          await axios.put('/api/spotify/player/play', { device_id: deviceId });
+          await api.put('/api/spotify/player/play', { device_id: deviceId });
           setIsPlaying(true);
           setPlayerIsPlaying(true);
         }
@@ -605,7 +563,7 @@ const Home = () => {
         .slice(0, 50);
 
       // Start playback with the selected track
-      await axios.put('/api/spotify/player/play', {
+      await api.put('/api/spotify/player/play', {
         device_id: deviceId,
         uris: [track.uri, ...nextTracks.map(t => t.uri)]
       });
@@ -640,7 +598,7 @@ const Home = () => {
   // Unified state update function
   const updatePlayerState = useCallback(async () => {
     try {
-      const response = await axios.get('/api/spotify/player/state');
+      const response = await api.get('/api/spotify/player/state');
       if (response.data?.item && response.data.item.id !== currentTrack?.id) {
         updateCurrentTrack(response.data.item);
       }
@@ -666,7 +624,7 @@ const Home = () => {
   const handleNext = async () => {
     try {
       // Make API call first
-      await axios.post('/api/spotify/player/next');
+      await api.post('/api/spotify/player/next');
       
       // Wait a tiny bit for Spotify to update its state
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -681,11 +639,7 @@ const Home = () => {
 
   const handlePrevious = async () => {
     try {
-      await axios.post('/api/spotify/player/previous', {}, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('spotify_access_token')}`
-        }
-      });
+      await api.post('/api/spotify/player/previous');
 
       // Small delay before getting actual state
       await new Promise(resolve => setTimeout(resolve, 50)); // Reduced from 100ms to 50ms

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
 import { initializeSpotifySDK, clearSDKStorage } from '../../utils/spotifySDK';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+import { api, refreshSpotifyToken } from '../../utils/spotifyApi';
 
 const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPlaylist, trackPosition }) => {
   const [player, setPlayer] = useState(null);
@@ -206,19 +204,15 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
     };
   }, []); // Empty dependency array since we only want to initialize once
 
-  // Handle token refresh
-  const refreshToken = async () => {
+  // Token refresh is centralised in utils/spotifyApi.js — no page reload.
+  const refreshToken = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/auth/refresh`, { withCredentials: true });
-      if (response.data.access_token) {
-        localStorage.setItem('spotify_access_token', response.data.access_token);
-        window.location.reload();
-      }
+      await refreshSpotifyToken();
     } catch (error) {
       console.error('Error refreshing token:', error);
       setError('Authentication failed');
     }
-  };
+  }, []);
 
   // Handle play/pause
   useEffect(() => {
@@ -269,7 +263,7 @@ const SpotifyPlayer = ({ uri, isPlaying: isPlayingProp, onPlayPause, selectedPla
         // Mark that we've played a track
         window.spotifyHasPlayedTrack = true;
         
-        const response = await axios.get(`/api/spotify/playlists/${selectedPlaylist}/tracks`);
+        const response = await api.get(`/api/spotify/playlists/${selectedPlaylist}/tracks`);
         const tracks = response.data;
         
         if (!tracks || tracks.length === 0) {

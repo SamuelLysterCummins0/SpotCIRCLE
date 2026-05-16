@@ -1,166 +1,154 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { getLyrics, getSong } = require('genius-lyrics-api');
+// Lyrics lookup. Previously this scraped Genius song pages with cheerio,
+// which broke whenever Genius changed their DOM. We now use LRCLib
+// (https://lrclib.net) — a free, public lyrics API with no key required.
+// The route URL stays "/api/genius/search" so the frontend doesn't need to
+// know we swapped providers.
 
-const GENIUS_API_URL = 'https://api.genius.com';
-const GENIUS_ACCESS_TOKEN = process.env.GENIUS_ACCESS_TOKEN;
+const axios = require('axios');
+const { CacheService } = require('../utils/cache');
+
+const LRCLIB_URL = 'https://lrclib.net/api';
+const USER_AGENT = 'SpotCIRCLE (https://github.com/SamuelLysterCummins0/SpotCIRCLE)';
+const LYRICS_TTL_SECONDS = 60 * 60; // 1 hour — lyrics don't really change.
+
+const cacheKeyFor = (title, artist) =>
+  `lyrics:${title.toLowerCase().trim()}|${artist.toLowerCase().trim()}`;
+
+// LRC format: each line is "[mm:ss.xx]lyric text" (a line can carry several
+// timestamps when the same words repeat). Returns lines sorted by time, each
+// with an absolute ms offset from the start of the track.
+const parseLrc = (text) => {
+  const stampRe = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
+  const blocks = [];
+
+  text.split(/\r?\n/).forEach((rawLine) => {
+    stampRe.lastIndex = 0;
+    const stamps = [];
+    let match;
+    while ((match = stampRe.exec(rawLine)) !== null) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseFloat(match[2]);
+      stamps.push(Math.round((minutes * 60 + seconds) * 1000));
+    }
+    if (stamps.length === 0) return;
+    const content = rawLine.replace(stampRe, '').trim();
+    stamps.forEach((time) => {
+      blocks.push({ time, text: content, type: 'lyrics', section: '' });
+    });
+  });
+
+  return blocks.sort((a, b) => a.time - b.time);
+};
+
+// Plain text fallback when we only have unsynced lyrics. No timestamps, so the
+// frontend can't highlight by time — it just renders them line-by-line.
+const parsePlain = (text) =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line, index) => {
+      const sectionMatch = line.match(/^\[(.+)\]$/);
+      if (sectionMatch) {
+        return { type: 'section', text: line, section: line, time: null };
+      }
+      return { type: 'lyrics', text: line, section: '', time: null };
+    });
 
 exports.searchSong = async (req, res) => {
+  const { title, artist } = req.query;
+
+  if (!title || !artist) {
+    return res
+      .status(400)
+      .json({ error: 'Missing title or artist query parameter' });
+  }
+
+  const cacheKey = cacheKeyFor(title, artist);
+  const cached = await CacheService.get(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   try {
-    const { artist, title } = req.query;
-    
-    console.log('Searching for lyrics:', { title, artist });
-    
-    const options = {
-      apiKey: GENIUS_ACCESS_TOKEN,
-      title: title,
-      artist: artist,
-      optimizeQuery: true
-    };
+    let track = null;
+    try {
+      const getRes = await axios.get(`${LRCLIB_URL}/get`, {
+        params: { track_name: title, artist_name: artist },
+        headers: { 'User-Agent': USER_AGENT },
+        validateStatus: (s) => s === 200 || s === 404,
+      });
+      if (getRes.status === 200) {
+        track = getRes.data;
+      }
+    } catch (e) {
+      // Fall through to search.
+    }
 
-    const song = await getSong(options).catch(() => null);
-    if (!song || !song.url) {
-      return res.status(404).json({ 
+    if (!track) {
+      const searchRes = await axios.get(`${LRCLIB_URL}/search`, {
+        params: { track_name: title, artist_name: artist },
+        headers: { 'User-Agent': USER_AGENT },
+      });
+      if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+        // Prefer a result that has synced lyrics.
+        track =
+          searchRes.data.find((r) => r.syncedLyrics) || searchRes.data[0];
+      }
+    }
+
+    if (!track) {
+      return res.status(404).json({
         error: 'Song not found',
-        message: 'Could not find this song on Genius.'
+        message: 'Could not find lyrics for this song.',
       });
     }
 
-    console.log('Fetching lyrics from URL:', song.url);
-    
-    const response = await axios.get(song.url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-    let currentSection = '';
-    let lyrics = [];
-
-    // Function to process text nodes and maintain structure
-    const processTextNode = (node) => {
-      const text = $(node).text().trim();
-      if (!text) return null;
-      
-      // Check if this is a section header
-      if (text.match(/^\[.*\]$/)) {
-        currentSection = text;
-        return { type: 'section', text };
-      }
-      
-      // Return regular lyrics line
-      return { type: 'lyrics', text, section: currentSection };
+    const send = async (payload) => {
+      await CacheService.set(cacheKey, payload, LYRICS_TTL_SECONDS);
+      return res.json(payload);
     };
 
-    // Function to process an element and its children
-    const processElement = ($el) => {
-      let results = [];
-      
-      // Process all child nodes
-      $el.contents().each((_, node) => {
-        if (node.type === 'text') {
-          const processed = processTextNode(node);
-          if (processed) results.push(processed);
-        } else if (node.type === 'tag') {
-          const $node = $(node);
-          
-          // Skip certain elements
-          if ($node.is('script') || $node.is('[style*="display: none"]')) {
-            return;
-          }
-
-          // Check for section headers in class names
-          const className = $node.attr('class') || '';
-          if (className.includes('Label') || className.includes('Header')) {
-            const text = $node.text().trim();
-            if (text) {
-              currentSection = `[${text}]`;
-              results.push({ type: 'section', text: currentSection });
-            }
-          } else {
-            // Recursively process child elements
-            results = results.concat(processElement($node));
-          }
-        }
+    if (track.instrumental) {
+      return send({
+        songId: track.id,
+        title: track.trackName || title,
+        artist: track.artistName || artist,
+        synced: false,
+        lyrics: [{ type: 'lyrics', text: '[Instrumental]', section: '', time: null }],
+        instrumental: true,
       });
-
-      return results;
-    };
-
-    // Try multiple selector patterns to find lyrics content
-    const lyricsSelectors = [
-      '[class*="Lyrics__Container"]',
-      '.lyrics',
-      '[data-lyrics-container="true"]',
-      '#lyrics-root',
-      '[class^="lyrics"]',
-      '.song_body-lyrics',
-      'div[class^="Lyrics__Root"]'
-    ];
-
-    let lyricsContent = [];
-    
-    for (const selector of lyricsSelectors) {
-      const container = $(selector);
-      if (container.length) {
-        lyricsContent = processElement(container);
-        if (lyricsContent.length) break;
-      }
     }
 
-    // Clean up the lyrics content
-    const cleanedLyrics = lyricsContent
-      .filter(item => {
-        const unwantedPhrases = [
-          'Embed',
-          'You might also like',
-          'Genius',
-          'Share URL',
-          'Copy',
-          'Contributors',
-          'Read More',
-          'Advertisement',
-          'Submit Corrections'
-        ];
-        
-        return item.text && 
-               !unwantedPhrases.some(phrase => item.text.includes(phrase));
-      })
-      .reduce((acc, current) => {
-        // Avoid consecutive duplicates unless they're sections
-        if (acc.length === 0 || 
-            current.type === 'section' || 
-            acc[acc.length - 1].text !== current.text) {
-          acc.push(current);
-        }
-        return acc;
-      }, []);
+    if (track.syncedLyrics) {
+      return send({
+        songId: track.id,
+        title: track.trackName || title,
+        artist: track.artistName || artist,
+        synced: true,
+        lyrics: parseLrc(track.syncedLyrics),
+      });
+    }
 
-    // Convert to timed blocks
-    const lyricsBlocks = cleanedLyrics.map((item, index) => ({
-      text: item.text,
-      type: item.type,
-      section: item.section,
-      timestamp: index * (item.type === 'section' ? 2000 : 4000)
-    }));
+    if (track.plainLyrics) {
+      return send({
+        songId: track.id,
+        title: track.trackName || title,
+        artist: track.artistName || artist,
+        synced: false,
+        lyrics: parsePlain(track.plainLyrics),
+      });
+    }
 
-    console.log(`Found ${lyricsBlocks.length} lyrics blocks`);
-
-    res.json({
-      songId: song.id,
-      title: song.title,
-      artist: artist,
-      lyrics: lyricsBlocks,
-      albumArt: song.albumArt
+    return res.status(404).json({
+      error: 'Lyrics not available',
+      message: 'LRCLib has this track but no lyrics text on file.',
     });
-    
   } catch (error) {
-    console.error('Error fetching lyrics:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch lyrics', 
+    console.error('Error fetching lyrics from LRCLib:', error.message);
+    res.status(500).json({
+      error: 'Failed to fetch lyrics',
       details: error.message,
-      stack: error.stack 
     });
   }
 };

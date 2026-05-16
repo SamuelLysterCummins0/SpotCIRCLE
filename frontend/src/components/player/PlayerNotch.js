@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import { api } from '../../utils/spotifyApi';
 import { usePlayerContext } from '../../contexts/PlayerContext';
 
 const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
@@ -15,6 +15,15 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   const [volume, setVolume] = useState(100);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
   const [lyrics, setLyrics] = useState([]);
+  const [lyricsSynced, setLyricsSynced] = useState(false);
+  const lyricRefs = useRef([]);
+  const lyricsContainerRef = useRef(null);
+  // Lyrics cache keyed by Spotify track URI. Persists for the session so
+  // toggling back to a song you've already heard renders instantly.
+  const lyricsCacheRef = useRef(new Map());
+  // Tracks the in-flight lyrics request so we can cancel it when the user
+  // skips to another song mid-fetch.
+  const lyricsAbortRef = useRef(null);
   const [textColors, setTextColors] = useState({
     primary: 'white',
     secondary: 'rgba(255, 255, 255, 0.7)',
@@ -64,7 +73,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
       if (!isExpanded) return;
       
       try {
-        const response = await axios.get('/api/spotify/player/state');
+        const response = await api.get('/api/spotify/player/state');
         if (response.data?.queue) {
           setQueueTracks(response.data.queue);
         }
@@ -77,7 +86,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
 
   const fetchQueue = useCallback(async () => {
     try {
-      const response = await axios.get('/api/spotify/player/state');
+      const response = await api.get('/api/spotify/player/state');
       if (response.data?.queue) {
         setQueueTracks(prevTracks => {
           const newTracks = response.data.queue;
@@ -304,17 +313,19 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   useEffect(() => {
     let interval;
     if (isPlaying && !isDragging && track) {
+      // Tick 4x per second so the active lyric advances smoothly instead of
+      // waiting a full second behind the real playback position.
+      const TICK_MS = 250;
       interval = setInterval(() => {
         setProgress(prev => {
-          const newProgress = prev + 1000;
-          // Don't exceed track duration
+          const newProgress = prev + TICK_MS;
           if (newProgress >= duration) {
             clearInterval(interval);
             return duration;
           }
           return newProgress;
         });
-      }, 1000); // Update every second
+      }, TICK_MS);
     }
     return () => {
       if (interval) {
@@ -332,7 +343,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
 
   const handleVolumeChange = async (newVolume) => {
     try {
-      const response = await axios.put('/api/spotify/player/volume', {
+      const response = await api.put('/api/spotify/player/volume', {
         volume_percent: newVolume
       });
       if (response.status === 200) {
@@ -401,7 +412,7 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
 
   const seekToPosition = async (position) => {
     try {
-      const response = await axios.put('/api/spotify/player/seek', {
+      const response = await api.put('/api/spotify/player/seek', {
         position_ms: position
       });
       if (response.status === 200) {
@@ -595,36 +606,57 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
   };
 
   // Fetch lyrics function
+  // Cache hits render immediately; rapid skips cancel any in-flight request
+  // so we don't waste cycles on songs the user no longer cares about.
   const fetchLyrics = useCallback(async () => {
     if (!track?.name || !track?.artists?.[0]?.name) {
       setLyrics([]);
+      setLyricsSynced(false);
       return;
     }
-    
-    try {
-      console.log('Fetching lyrics for:', {
-        title: track.name,
-        artist: track.artists[0].name
-      });
 
-      const response = await axios.get('/api/genius/search', {
+    const cacheKey = track.uri || `${track.name}|${track.artists[0].name}`;
+    const cached = lyricsCacheRef.current.get(cacheKey);
+    if (cached) {
+      setLyrics(cached.lyrics);
+      setLyricsSynced(cached.synced);
+      return;
+    }
+
+    if (lyricsAbortRef.current) {
+      lyricsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    lyricsAbortRef.current = controller;
+
+    try {
+      const response = await api.get('/api/genius/search', {
         params: {
           title: track.name,
-          artist: track.artists[0].name
-        }
+          artist: track.artists[0].name,
+        },
+        signal: controller.signal,
       });
-      
-      if (response.data?.lyrics?.length > 0) {
-        setLyrics(response.data.lyrics);
-      } else {
-        console.log('No lyrics found in response');
-        setLyrics([]);
-      }
+
+      if (controller.signal.aborted) return;
+
+      const hasLyrics = response.data?.lyrics?.length > 0;
+      const payload = {
+        lyrics: hasLyrics ? response.data.lyrics : [],
+        synced: hasLyrics && Boolean(response.data.synced),
+      };
+      lyricsCacheRef.current.set(cacheKey, payload);
+      setLyrics(payload.lyrics);
+      setLyricsSynced(payload.synced);
     } catch (error) {
+      if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
+        return; // Superseded by a newer track — silently drop.
+      }
       console.error('Failed to fetch lyrics:', error.response || error);
       setLyrics([]);
+      setLyricsSynced(false);
     }
-  }, [track?.name, track?.artists]);
+  }, [track?.uri, track?.name, track?.artists]);
 
   // Fetch lyrics when track changes
   useEffect(() => {
@@ -632,6 +664,84 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
       fetchLyrics();
     }
   }, [track?.uri, fetchLyrics]);
+
+  // Index of the currently-singing line. Binary-searches for the largest
+  // timestamp <= current playback position. Returns -1 when lyrics aren't
+  // synced (no timestamps) or playback hasn't reached the first line yet.
+  // The LEAD compensates for: (a) LRC timestamps marking when a line STARTS
+  // being sung — so highlighting exactly at the timestamp feels a beat late,
+  // and (b) the residual lag between our polled progress and reality.
+  const LYRIC_LEAD_MS = 500;
+  const activeLyricIndex = (() => {
+    if (!lyricsSynced || lyrics.length === 0) return -1;
+    const cursor = progress + LYRIC_LEAD_MS;
+    let lo = 0;
+    let hi = lyrics.length - 1;
+    let result = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const t = lyrics[mid].time;
+      if (t != null && t <= cursor) {
+        result = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return result;
+  })();
+
+  // Keep the active line centred inside the lyrics container only — never
+  // the page. We use bounding-rect arithmetic (rather than offsetTop, which
+  // is relative to the nearest positioned ancestor) and useLayoutEffect so
+  // the scroll happens before the browser paints, avoiding a flash where
+  // the active line is offscreen.
+  useLayoutEffect(() => {
+    if (activeLyricIndex < 0 || !isExpanded) return;
+    const container = lyricsContainerRef.current;
+    const el = lyricRefs.current[activeLyricIndex];
+    if (!container || !el) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const target =
+      container.scrollTop +
+      (elRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      el.clientHeight / 2;
+    container.scrollTo({ top: target, behavior: 'smooth' });
+  }, [activeLyricIndex, isExpanded, lyrics]);
+
+  // Sync local `progress` with Spotify's real playback position while the
+  // notch is expanded with synced lyrics. The local 1s tick drifts by a
+  // couple of seconds; polling /me/player every 2s pulls it back in line
+  // with what's actually being heard.
+  useEffect(() => {
+    if (!isExpanded || !lyricsSynced || !isPlaying || isDragging) return;
+    let cancelled = false;
+    const sync = async () => {
+      const t0 = Date.now();
+      try {
+        const response = await api.get('/api/spotify/player/state');
+        const realMs = response.data?.progress_ms;
+        if (!cancelled && typeof realMs === 'number') {
+          // progress_ms was the position at the moment Spotify sent the
+          // response — by the time we apply it, ~half the round trip has
+          // already elapsed, so add that back in to stay current.
+          const rttHalf = Math.round((Date.now() - t0) / 2);
+          setProgress(realMs + rttHalf);
+        }
+      } catch {
+        // Quiet — drift just continues until the next tick succeeds.
+      }
+    };
+    sync();
+    const id = setInterval(sync, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isExpanded, lyricsSynced, isPlaying, isDragging, track?.uri]);
 
   const handleDragEnd = async () => {
     if (isDragging) {
@@ -986,28 +1096,37 @@ const PlayerNotch = ({ track, onPlayPause, onNext, onPrevious, isPlaying }) => {
             >
               Lyrics
             </h3>
-            <div 
+            <div
+              ref={lyricsContainerRef}
               className="lyrics-container space-y-9 max-h-[240px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-transparent"
             >
               {lyrics.length > 0 ? (
-                lyrics.map((lyric, index) => (
-                  <motion.div
-                    key={index}
-                    whileHover={{ 
-                      color: 'rgba(255, 255, 255, 1)',
-                      scale: 1.05,
-                      transition: { duration: 0.1 }
-                    }}
-                    className="text-center transition-all"
-                    style={{ color: textColors.secondary, color: textColors.secondary === 'white' ? 'rgba(255, 255, 255, 1)' : textColors.secondary }}
-                  >
-                    <p 
-                      className="text-lg font-medium"
+                lyrics.map((lyric, index) => {
+                  const isActive = index === activeLyricIndex;
+                  return (
+                    <motion.div
+                      key={index}
+                      ref={(el) => {
+                        lyricRefs.current[index] = el;
+                      }}
+                      whileHover={{
+                        color: 'rgba(255, 255, 255, 1)',
+                        scale: 1.05,
+                        transition: { duration: 0.1 },
+                      }}
+                      animate={{
+                        color: isActive
+                          ? 'rgba(255, 255, 255, 1)'
+                          : textColors.secondary,
+                        scale: isActive ? 1.05 : 1,
+                      }}
+                      transition={{ duration: 0.2 }}
+                      className="text-center"
                     >
-                      {lyric.text}
-                    </p>
-                  </motion.div>
-                ))
+                      <p className="text-lg font-medium">{lyric.text}</p>
+                    </motion.div>
+                  );
+                })
               ) : (
                 <p className="text-center text-gray-400">No lyrics available</p>
               )}

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-const API_URL = 'http://localhost:5001/api';
+const API_URL = `${process.env.REACT_APP_API_URL || 'http://127.0.0.1:5001'}/api`;
 
 const Login = () => {
   const navigate = useNavigate();

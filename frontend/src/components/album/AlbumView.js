@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import { api } from '../../utils/spotifyApi';
 import TrackItem from '../tracks/TrackItem';
 import { uiStateCache, CACHE_DURATION, CACHE_KEYS } from '../../utils/cacheManager';
 import { VariableSizeList as List } from 'react-window';
@@ -36,7 +36,7 @@ const AlbumView = ({
         return;
       }
 
-      const response = await axios.get(`/api/spotify/albums/${album.id}/tracks`);
+      const response = await api.get(`/api/spotify/albums/${album.id}/tracks`);
       const { tracks, albumInfo } = response.data;
 
       uiStateCache.set(cacheKey, { tracks, albumInfo }, CACHE_DURATION.UI_STATE);

@@ -65,6 +65,13 @@ router.get('/top', setAccessToken, async (req, res) => {
         console.error('Error fetching top tracks:', error);
         if (error.statusCode === 401) {
             res.status(401).json({ error: 'Token expired' });
+        } else if (error.statusCode === 403) {
+            // Spotify deprecated /me/top/* for new apps without extended quota
+            // (Nov 2024). Surface a useful message instead of a generic 500.
+            res.status(403).json({
+                error: 'Top tracks unavailable',
+                message: "Spotify hasn't granted this app access to your top tracks. If you're testing in Development mode, add your account to the Spotify Dashboard user list.",
+            });
         } else {
             res.status(500).json({ error: 'Failed to fetch top tracks' });
         }

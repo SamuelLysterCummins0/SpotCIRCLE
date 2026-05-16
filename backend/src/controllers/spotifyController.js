@@ -274,14 +274,13 @@ exports.getTopArtists = async (req, res) => {
   try {
     const token = req.headers.authorization.split(' ')[1];
     const { time_range = 'short_term' } = req.query;
-    
+
     spotifyApi.setAccessToken(token);
     const data = await spotifyApi.getMyTopArtists({
       limit: 50,
       time_range
     });
 
-    // Transform artist data
     const transformedArtists = data.body.items.map(artist => ({
       id: artist.id,
       name: artist.name,
@@ -295,6 +294,15 @@ exports.getTopArtists = async (req, res) => {
     res.json(transformedArtists);
   } catch (error) {
     console.error('Error getting top artists:', error);
+    if (error.statusCode === 401) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    if (error.statusCode === 403) {
+      return res.status(403).json({
+        error: 'Top artists unavailable',
+        message: "Spotify hasn't granted this app access to your top artists. If you're testing in Development mode, add your account to the Spotify Dashboard user list.",
+      });
+    }
     res.status(500).json({ error: 'Failed to get top artists' });
   }
 };

@@ -95,7 +95,8 @@ const handleCallback = async (req, res) => {
   }
 };
 
-// Refresh token
+// Refresh token. If the frontend sends X-User-Id we use it to clear that
+// user's cached data; otherwise we just return the new token.
 const refreshToken = async (req, res) => {
   const { refresh_token } = req.query;
 
@@ -104,35 +105,24 @@ const refreshToken = async (req, res) => {
     const data = await spotifyApi.refreshAccessToken();
     const { access_token, expires_in } = data.body;
 
-    // Calculate expiration timestamp
     const expiresAt = Date.now() + (expires_in * 1000);
 
-    // Clear all user-specific caches on token refresh
-    try {
-      const base64Url = access_token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
-      const userId = payload.sub || payload.id;
-      
-      if (userId) {
-        const userCacheKeys = [
-          CACHE_KEYS.USER_PLAYLISTS_MINIMAL(userId),
-          CACHE_KEYS.USER_PLAYLISTS_DETAILS(userId),
-          CACHE_KEYS.USER_PROFILE(userId),
-          CACHE_KEYS.USER_PREFERENCES(userId)
-        ];
-        
-        await Promise.all(userCacheKeys.map(key => CacheService.set(key, null, 0)));
-      }
-    } catch (e) {
-      console.warn('Could not clear user caches during token refresh:', e);
+    const userId = req.headers['x-user-id'];
+    if (userId) {
+      const userCacheKeys = [
+        CACHE_KEYS.USER_PLAYLISTS_MINIMAL(userId),
+        CACHE_KEYS.USER_PLAYLISTS_DETAILS(userId),
+        CACHE_KEYS.USER_PROFILE(userId),
+        CACHE_KEYS.USER_PREFERENCES(userId),
+      ];
+      await Promise.all(userCacheKeys.map((key) => CacheService.set(key, null, 0)));
     }
 
     res.json({
       access_token,
       refresh_token,
       expires_in,
-      expires_at: expiresAt
+      expires_at: expiresAt,
     });
   } catch (error) {
     console.error('Error refreshing token:', error);
